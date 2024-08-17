@@ -1,15 +1,12 @@
-mod http10;
+pub mod http10;
 mod file;
-mod threadpool;
-use core::{panic, str};
-use std::{io::{Read, Write}, net::{TcpListener, TcpStream}};
+pub mod threadpool;
+use core::str;
+use std::{io::{Read, Write}, net::TcpStream};
 
 use http10::{handle_request, request::HTTPRequest};
-use simple_logger::SimpleLogger;
-use threadpool::tpqueue::ThreadPoolQ;
 
-fn handle_client(stream: TcpStream) {
-    let mut stream = stream.try_clone().unwrap();
+pub fn handle_client(mut stream: TcpStream) {
     let local: String = match stream.local_addr() {
         Ok(addr) => addr.to_string(),
         Err(_) => "Invalid Address".to_string(),
@@ -37,24 +34,4 @@ fn handle_client(stream: TcpStream) {
         }
     }
     stream.write_all(handle_request(request).as_bytes().as_slice()).unwrap();
-}
-
-fn main() {
-    // Initialize a new logger
-    SimpleLogger::new().init().unwrap();
-    log::info!("Logging started...");
-
-    let mut tpq = ThreadPoolQ::new(2, handle_client);
-    if let Ok(listener) = TcpListener::bind("0.0.0.0:8080") {
-        log::warn!("Started listening on 127.0.0.1:8080...");
-        for stream in listener.incoming() {
-            match stream {
-                Ok(stream) => tpq.push_job(stream),
-                Err(e) => log::error!("Connection failed with {e:?}")
-            }
-        }
-    } else {
-        log::error!("Unable to start listening on 127.0.0.1:8080");
-        panic!("Unable to bind port 8080 on 127.0.0.1")
-    }
 }

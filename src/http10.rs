@@ -8,7 +8,7 @@ use request::HTTPRequest;
 use response::HTTPResponse;
 use result_codes::ResultCode;
 
-use crate::file::file;
+use crate::file;
 
 pub mod result_codes;
 pub mod methods;
