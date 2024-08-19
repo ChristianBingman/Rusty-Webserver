@@ -32,6 +32,9 @@ pub mod http_server {
     use core::str;
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::Duration;
 
     use chrono::Utc;
 
@@ -40,6 +43,7 @@ pub mod http_server {
     use crate::http10::methods::Method;
     use crate::http10::result_codes::ResultCode;
     use crate::http10::{request::HTTPRequest, response::HTTPResponse};
+    use crate::threadpool::ThreadPoolQ;
 
     use super::Opts;
 
@@ -53,11 +57,12 @@ pub mod http_server {
     pub struct HTTPServer {
         class: HTTPServerClass,
         args: Opts,
-        handler: Box<dyn Fn(TcpStream) -> () + Send + 'static>,
+        handler: Box<dyn Fn(HTTPRequest) -> HTTPResponse + Send + Sync + 'static>,
     }
 
     impl HTTPServer {
         fn default_handler(req: HTTPRequest) -> HTTPResponse {
+            thread::sleep(Duration::from_secs(5));
             let mut headers: Vec<Header> = vec![
                 Header::Date(Utc::now().into()),
                 Header::Server("Rusty Webserver".to_string()),
@@ -134,7 +139,7 @@ pub mod http_server {
 
         fn handle_stream(
             mut stream: TcpStream,
-            handler: &Box<dyn Fn(HTTPRequest) -> HTTPResponse + Send + 'static>,
+            handler: &Box<dyn Fn(HTTPRequest) -> HTTPResponse + Send + Sync + 'static>,
         ) {
             let local: String = match stream.local_addr() {
                 Ok(addr) => addr.to_string(),
@@ -171,21 +176,19 @@ pub mod http_server {
         pub fn new(
             class: HTTPServerClass,
             opts: Opts,
-            handler: Option<Box<dyn Fn(HTTPRequest) -> HTTPResponse + Send + 'static>>,
+            handler: Option<Box<dyn Fn(HTTPRequest) -> HTTPResponse + Send + Sync + 'static>>,
         ) -> HTTPServer {
-            let handler = match handler {
-                Some(handl) => handl,
-                None => Box::new(HTTPServer::default_handler)
-                    as Box<dyn Fn(HTTPRequest) -> HTTPResponse + Send + 'static>,
-            };
-
-            let handler = Box::new(move |stream| {
-                HTTPServer::handle_stream(stream, &handler);
-            });
-            HTTPServer {
-                class,
-                args: opts,
-                handler,
+            match handler {
+                Some(handl) => HTTPServer {
+                    class,
+                    args: opts,
+                    handler: handl,
+                },
+                None => HTTPServer {
+                    class,
+                    args: opts,
+                    handler: Box::new(HTTPServer::default_handler),
+                },
             }
         }
 
@@ -197,10 +200,49 @@ pub mod http_server {
                             .expect("Unable to bind!");
 
                     for stream in listener.incoming() {
-                        (*self.handler)(stream.expect("Test"));
+                        HTTPServer::handle_stream(stream.expect("Test"), &self.handler);
                     }
                 }
-                _ => unimplemented!(),
+                HTTPServerClass::Threaded => {
+                    let listener =
+                        TcpListener::bind(format!("{}:{}", self.args.bind, self.args.port))
+                            .expect("Unable to bind!");
+
+                    let handler = Arc::new(self.handler);
+
+                    for stream in listener.incoming() {
+                        match stream {
+                            Ok(stream) => {
+                                let handler = Arc::clone(&handler);
+                                std::thread::spawn(move || {
+                                    HTTPServer::handle_stream(stream, &handler);
+                                });
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to establish a connection: {}", e);
+                            }
+                        }
+                    }
+                }
+                HTTPServerClass::ThreadPooled => {
+                    let listener =
+                        TcpListener::bind(format!("{}:{}", self.args.bind, self.args.port))
+                            .expect("Unable to bind!");
+
+                    let mut tpq = ThreadPoolQ::new(2, move |stream| {
+                        HTTPServer::handle_stream(stream, &self.handler)
+                    });
+                    for stream in listener.incoming() {
+                        match stream {
+                            Ok(stream) => {
+                                tpq.push_job(stream);
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to establish a connection: {}", e);
+                            }
+                        }
+                    }
+                }
             }
         }
     }
