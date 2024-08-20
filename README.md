@@ -4,10 +4,11 @@ Provides an implementation of an http 1.0 file server. Essentially like python3'
 
 ## Features
 - [x] Handles GET and HEAD requests
-- [ ] Handle encodings other than UTF-8
+- [x] Handle encodings other than UTF-8
 - [x] ThreadPool implementation
   - Allows you to specify the amount of threads that can be used to accept requests, then uses a queue to handle requests as they are received
-- [-] Command line args with clap
+- [x] Command line args with clap
+- [ ] Logging
 - [-] Testing
   - [x] ThreadPool implementation
   - [ ] Request parsing

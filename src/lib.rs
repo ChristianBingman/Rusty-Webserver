@@ -5,16 +5,16 @@ mod threadpool;
 #[derive(Debug, PartialEq)]
 pub struct Opts {
     /// port to bind to
-    port: u16,
+    pub port: u16,
 
     /// address to bind to
-    bind: String,
+    pub bind: String,
 
     /// directory to serve
-    directory: String,
+    pub directory: String,
 
     /// protocol to use (supports http 1.0)
-    protocol: String,
+    pub protocol: String,
 }
 
 impl Default for Opts {
@@ -33,8 +33,6 @@ pub mod http_server {
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::sync::Arc;
-    use std::thread;
-    use std::time::Duration;
 
     use chrono::Utc;
 
@@ -51,18 +49,17 @@ pub mod http_server {
     pub enum HTTPServerClass {
         Simple,
         Threaded,
-        ThreadPooled,
+        ThreadPooled(usize),
     }
 
     pub struct HTTPServer {
         class: HTTPServerClass,
-        args: Opts,
-        handler: Box<dyn Fn(HTTPRequest) -> HTTPResponse + Send + Sync + 'static>,
+        opts: Arc<Opts>,
+        handler: Box<dyn Fn(HTTPRequest, &Arc<Opts>) -> HTTPResponse + Send + Sync + 'static>,
     }
 
     impl HTTPServer {
-        fn default_handler(req: HTTPRequest) -> HTTPResponse {
-            thread::sleep(Duration::from_secs(5));
+        fn default_handler(req: HTTPRequest, opts: &Arc<Opts>) -> HTTPResponse {
             let mut headers: Vec<Header> = vec![
                 Header::Date(Utc::now().into()),
                 Header::Server("Rusty Webserver".to_string()),
@@ -70,13 +67,13 @@ pub mod http_server {
 
             match req.method {
                 Method::GET => {
-                    let f = File::try_load(req.uri, "./");
+                    let f = File::try_load(req.uri, &opts.directory);
                     match f {
                         Ok(file) => {
                             headers.push(Header::ContentType(file.get_mime()));
                             headers.push(Header::ContentLength(file.get_size()));
                             HTTPResponse::new(
-                                "HTTP/1.0".to_string(),
+                                opts.protocol.clone(),
                                 ResultCode::OK,
                                 headers,
                                 Some(file.get_content()),
@@ -88,7 +85,7 @@ pub mod http_server {
                             {
                                 headers.push(Header::ContentType("text/plain".to_string()));
                                 HTTPResponse::new(
-                                    "HTTP/1.0".to_string(),
+                                    opts.protocol.clone(),
                                     ResultCode::NotFound,
                                     headers,
                                     Some(
@@ -101,7 +98,7 @@ pub mod http_server {
                             _ => {
                                 headers.push(Header::ContentType("text/plain".to_string()));
                                 HTTPResponse::new(
-                                    "HTTP/1.0".to_string(),
+                                    opts.protocol.clone(),
                                     ResultCode::InternalServerError,
                                     headers,
                                     Some(
@@ -115,7 +112,7 @@ pub mod http_server {
                     }
                 }
                 Method::HEAD => {
-                    HTTPResponse::new("HTTP/1.0".to_string(), ResultCode::OK, headers, None)
+                    HTTPResponse::new(opts.protocol.clone(), ResultCode::OK, headers, None)
                 }
                 Method::POST => {
                     log::info!(
@@ -124,7 +121,7 @@ pub mod http_server {
                     );
                     headers.push(Header::ContentType("text/plain".to_string()));
                     HTTPResponse::new(
-                        "HTTP/1.0".to_string(),
+                        opts.protocol.clone(),
                         ResultCode::NotImplemented,
                         headers,
                         Some(
@@ -139,7 +136,8 @@ pub mod http_server {
 
         fn handle_stream(
             mut stream: TcpStream,
-            handler: &Box<dyn Fn(HTTPRequest) -> HTTPResponse + Send + Sync + 'static>,
+            handler: &Box<dyn Fn(HTTPRequest, &Arc<Opts>) -> HTTPResponse + Send + Sync + 'static>,
+            opts: &Arc<Opts>,
         ) {
             let local: String = match stream.local_addr() {
                 Ok(addr) => addr.to_string(),
@@ -169,24 +167,27 @@ pub mod http_server {
             }
             let request = HTTPRequest::try_from(&request).unwrap();
             stream
-                .write_all(handler(request).as_bytes().as_slice())
+                .write_all(handler(request, opts).as_bytes().as_slice())
                 .unwrap();
         }
 
         pub fn new(
             class: HTTPServerClass,
             opts: Opts,
-            handler: Option<Box<dyn Fn(HTTPRequest) -> HTTPResponse + Send + Sync + 'static>>,
+            handler: Option<
+                Box<dyn Fn(HTTPRequest, &Arc<Opts>) -> HTTPResponse + Send + Sync + 'static>,
+            >,
         ) -> HTTPServer {
+            let opts = Arc::new(opts);
             match handler {
                 Some(handl) => HTTPServer {
                     class,
-                    args: opts,
+                    opts,
                     handler: handl,
                 },
                 None => HTTPServer {
                     class,
-                    args: opts,
+                    opts,
                     handler: Box::new(HTTPServer::default_handler),
                 },
             }
@@ -196,16 +197,17 @@ pub mod http_server {
             match self.class {
                 HTTPServerClass::Simple => {
                     let listener =
-                        TcpListener::bind(format!("{}:{}", self.args.bind, self.args.port))
+                        TcpListener::bind(format!("{}:{}", self.opts.bind, self.opts.port))
                             .expect("Unable to bind!");
+                    let opts = Arc::clone(&self.opts);
 
                     for stream in listener.incoming() {
-                        HTTPServer::handle_stream(stream.expect("Test"), &self.handler);
+                        HTTPServer::handle_stream(stream.expect("Test"), &self.handler, &opts);
                     }
                 }
                 HTTPServerClass::Threaded => {
                     let listener =
-                        TcpListener::bind(format!("{}:{}", self.args.bind, self.args.port))
+                        TcpListener::bind(format!("{}:{}", self.opts.bind, self.opts.port))
                             .expect("Unable to bind!");
 
                     let handler = Arc::new(self.handler);
@@ -214,8 +216,9 @@ pub mod http_server {
                         match stream {
                             Ok(stream) => {
                                 let handler = Arc::clone(&handler);
+                                let opts = Arc::clone(&self.opts);
                                 std::thread::spawn(move || {
-                                    HTTPServer::handle_stream(stream, &handler);
+                                    HTTPServer::handle_stream(stream, &handler, &opts);
                                 });
                             }
                             Err(e) => {
@@ -224,13 +227,14 @@ pub mod http_server {
                         }
                     }
                 }
-                HTTPServerClass::ThreadPooled => {
+                HTTPServerClass::ThreadPooled(threads) => {
                     let listener =
-                        TcpListener::bind(format!("{}:{}", self.args.bind, self.args.port))
+                        TcpListener::bind(format!("{}:{}", self.opts.bind, self.opts.port))
                             .expect("Unable to bind!");
 
-                    let mut tpq = ThreadPoolQ::new(2, move |stream| {
-                        HTTPServer::handle_stream(stream, &self.handler)
+                    let opts = Arc::clone(&self.opts);
+                    let mut tpq = ThreadPoolQ::new(threads, move |stream| {
+                        HTTPServer::handle_stream(stream, &self.handler, &opts)
                     });
                     for stream in listener.incoming() {
                         match stream {
@@ -263,7 +267,7 @@ pub mod http_server {
 
         #[test]
         fn test_create_threadpool_server() {
-            HTTPServer::new(HTTPServerClass::ThreadPooled, Opts::default(), None);
+            HTTPServer::new(HTTPServerClass::ThreadPooled(5), Opts::default(), None);
         }
     }
 }

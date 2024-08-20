@@ -1,3 +1,4 @@
+use super::convert_iso_8859_1_to_utf8;
 use super::headers::Header;
 use super::methods::Method;
 
@@ -58,8 +59,7 @@ impl TryFrom<&Vec<u8>> for HTTPRequest {
             ));
         }
         let (header_lines, body) = &req.split_at(spl_ind.unwrap() + 4);
-        let header_lines_str = String::from_utf8(header_lines.to_vec())
-            .map_err(|_| Self::Error::ParseError("Headers aren't valid UTF-8".to_string()))?;
+        let header_lines_str = convert_iso_8859_1_to_utf8(&header_lines.to_vec());
         let mut headers = header_lines_str
             .strip_suffix("\r\n\r\n")
             .unwrap()
