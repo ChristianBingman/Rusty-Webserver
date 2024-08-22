@@ -10,6 +10,7 @@ const TRYFILES: [&'static str; 2] = ["/index.html", "/index.htm"];
 #[derive(Debug)]
 pub enum FileError {
     ReadError(io::Error),
+    IsADirectory,
 }
 
 #[derive(Debug)]
@@ -29,7 +30,7 @@ impl std::fmt::Display for File {
 }
 
 impl File {
-    pub fn try_load(uri: String, base_dir: &str) -> Result<Self, FileError> {
+    pub fn try_load(uri: &str, base_dir: &str) -> Result<Self, FileError> {
         let path = Path::new(base_dir).join(&uri[1..]);
         if let Ok(exists) = path.try_exists() {
             if !exists {
@@ -41,17 +42,12 @@ impl File {
         if path.is_dir() {
             let try_files: Vec<Result<Self, FileError>> = TRYFILES
                 .iter()
-                .map(|file| {
-                    Self::try_load(
-                        Path::new(&uri).join(file).to_str().unwrap().to_string(),
-                        base_dir,
-                    )
-                })
+                .map(|file| Self::try_load(Path::new(&uri).join(file).to_str().unwrap(), base_dir))
                 .collect();
             if let Some(file) = try_files.into_iter().find_map(Result::ok) {
                 return Ok(file);
             } else {
-                return Err(FileError::ReadError(io::ErrorKind::NotFound.into()));
+                return Err(FileError::IsADirectory);
             }
         }
         let extension: Option<String> = path
@@ -85,5 +81,14 @@ impl File {
 
     pub fn get_size(&self) -> usize {
         self.size
+    }
+
+    pub fn get_listing(uri: &str, base_dir: &str) -> Vec<String> {
+        let path = Path::new(base_dir).join(&uri[1..]);
+        let files = fs::read_dir(path).unwrap();
+
+        files
+            .map(|file| file.unwrap().path().display().to_string())
+            .collect()
     }
 }

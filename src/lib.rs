@@ -1,6 +1,7 @@
 mod file;
 mod http10;
 mod threadpool;
+mod util;
 
 #[derive(Debug, PartialEq)]
 pub struct Opts {
@@ -42,6 +43,7 @@ pub mod http_server {
     use crate::http10::result_codes::ResultCode;
     use crate::http10::{request::HTTPRequest, response::HTTPResponse};
     use crate::threadpool::ThreadPoolQ;
+    use crate::util;
 
     use super::Opts;
 
@@ -67,7 +69,7 @@ pub mod http_server {
 
             match req.method {
                 Method::GET => {
-                    let f = File::try_load(req.uri, &opts.directory);
+                    let f = File::try_load(&req.uri, &opts.directory);
                     match f {
                         Ok(file) => {
                             headers.push(Header::ContentType(file.get_mime()));
@@ -93,6 +95,20 @@ pub mod http_server {
                                             .as_bytes()
                                             .to_vec(),
                                     ),
+                                )
+                            }
+                            FileError::IsADirectory => {
+                                // Get a listing of files
+                                let files = File::get_listing(&req.uri, &opts.directory);
+
+                                let body = util::html::dir_listing(files);
+
+                                headers.push(Header::ContentType("text/html".to_string()));
+                                HTTPResponse::new(
+                                    opts.protocol.clone(),
+                                    ResultCode::OK,
+                                    headers,
+                                    Some(body.into()),
                                 )
                             }
                             _ => {
@@ -154,12 +170,7 @@ pub mod http_server {
                 match stream.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
-                        if let Ok(parsed_data) = str::from_utf8(&buf[..n]) {
-                            log::info!("Received: {}", parsed_data);
-                            request.append(buf[..n].to_vec().as_mut());
-                        } else {
-                            request.append(buf[..n].to_vec().as_mut());
-                        }
+                        request.append(buf[..n].to_vec().as_mut());
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => (),
                     Err(_) => break,
