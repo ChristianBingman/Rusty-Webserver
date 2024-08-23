@@ -9,8 +9,8 @@ Provides an implementation of an http 1.0 file server. Essentially like python3'
   - Allows you to specify the amount of threads that can be used to accept requests, then uses a queue to handle requests as they are received
 - [x] Command line args with clap
 - [x] Show directory listings
+- [x] Implement basic authentication
 - [ ] Logging
-- [ ] Implement basic authentication
 - [ ] Handle passing of multiple of the same header type
 - [ ] Handle last-modified, if-modified-since, and 304
 - [ ] Handle return codes better

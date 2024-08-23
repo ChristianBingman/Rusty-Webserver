@@ -1,6 +1,9 @@
 use chrono::{DateTime, FixedOffset};
 
-use super::{content_codings::ContentEncoding, methods::{InvalidMethodErr, Method}};
+use super::{
+    content_codings::ContentEncoding,
+    methods::{InvalidMethodErr, Method},
+};
 
 #[derive(Debug)]
 pub enum HeaderErr {
@@ -36,16 +39,34 @@ pub enum Header {
     Referer(String),
     Server(String),
     UserAgent(String),
-    WWWAuthenticate(String)
+    WWWAuthenticate(String),
+}
+
+impl Header {
+    pub fn str_inner(&self) -> Option<String> {
+        match self {
+            Self::Authorization(inner) => Some(inner.to_string()),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for Header {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Header::Accept(suf) => f.write_fmt(format_args!("Accept: {}", suf)),
-            Header::Allow(methods) => f.write_fmt(format_args!("Allow: {}", methods.iter().map(|method| Into::<String>::into(*method)).collect::<Vec<String>>().join(","))),
+            Header::Allow(methods) => f.write_fmt(format_args!(
+                "Allow: {}",
+                methods
+                    .iter()
+                    .map(|method| Into::<String>::into(*method))
+                    .collect::<Vec<String>>()
+                    .join(",")
+            )),
             Header::Authorization(suf) => f.write_fmt(format_args!("Authorization: {}", suf)),
-            Header::ContentEncoding(encoding) => f.write_fmt(format_args!("Content-Encoding: {}", encoding)),
+            Header::ContentEncoding(encoding) => {
+                f.write_fmt(format_args!("Content-Encoding: {}", encoding))
+            }
             Header::ContentLength(len) => f.write_fmt(format_args!("Content-Length: {}", len)),
             Header::ContentType(mime) => f.write_fmt(format_args!("Content-Type: {}", mime)),
             Header::Date(date) => f.write_fmt(format_args!("Date: {}", date.to_rfc2822())),
@@ -53,8 +74,12 @@ impl std::fmt::Display for Header {
             Header::From(suf) => f.write_fmt(format_args!("From: {}", suf)),
             Header::Generic((pref, suf)) => f.write_fmt(format_args!("{}: {}", pref, suf)),
             Header::Host(suf) => f.write_fmt(format_args!("Host: {}", suf)),
-            Header::IfModifiedSince(date) => f.write_fmt(format_args!("If-Modified-Since: {}", date.to_rfc2822())),
-            Header::LastModified(date) => f.write_fmt(format_args!("Last-Modified: {}", date.to_rfc2822())),
+            Header::IfModifiedSince(date) => {
+                f.write_fmt(format_args!("If-Modified-Since: {}", date.to_rfc2822()))
+            }
+            Header::LastModified(date) => {
+                f.write_fmt(format_args!("Last-Modified: {}", date.to_rfc2822()))
+            }
             Header::Location(suf) => f.write_fmt(format_args!("Location: {}", suf)),
             Header::Pragma(suf) => f.write_fmt(format_args!("Pragma: {}", suf)),
             Header::Referer(suf) => f.write_fmt(format_args!("Referer: {}", suf)),
@@ -74,29 +99,58 @@ impl TryFrom<String> for Header {
             match field {
                 "Accept" => Ok(Self::Accept(suf.to_string())),
                 "Allow" => {
-                    let methods = suf.split(',').map(|method| Method::try_from(method)).collect::<Result<Vec<Method>, InvalidMethodErr>>().map_err(|_| Self::Error::InvalidField(format!("Unable to parse suffix {}", suf)));
+                    let methods = suf
+                        .split(',')
+                        .map(|method| Method::try_from(method))
+                        .collect::<Result<Vec<Method>, InvalidMethodErr>>()
+                        .map_err(|_| {
+                            Self::Error::InvalidField(format!("Unable to parse suffix {}", suf))
+                        });
                     Ok(Self::Allow(methods?))
-                },
+                }
                 "Authorization" => Ok(Self::Authorization(suf.to_string())),
-                "Content-Encoding" => Ok(Self::ContentEncoding(ContentEncoding::try_from(suf).map_err(|_| Self::Error::InvalidField(format!("Unable to parse suffix {}", suf)))?)),
-                "Content-Length" => Ok(Self::ContentLength(suf.parse::<usize>().map_err(|_| Self::Error::InvalidField(format!("Unable to parse suffix {}", suf)))?)),
+                "Content-Encoding" => Ok(Self::ContentEncoding(
+                    ContentEncoding::try_from(suf).map_err(|_| {
+                        Self::Error::InvalidField(format!("Unable to parse suffix {}", suf))
+                    })?,
+                )),
+                "Content-Length" => {
+                    Ok(Self::ContentLength(suf.parse::<usize>().map_err(|_| {
+                        Self::Error::InvalidField(format!("Unable to parse suffix {}", suf))
+                    })?))
+                }
                 "Content-Type" => Ok(Self::ContentType(suf.to_string())),
-                "Date" => Ok(Self::Date(DateTime::parse_from_rfc2822(suf).map_err(|_| Self::Error::InvalidField(format!("Unable to parse suffix {}", suf)))?)),
-                "Expires" => Ok(Self::Expires(DateTime::parse_from_rfc2822(suf).map_err(|_| Self::Error::InvalidField(format!("Unable to parse suffix {}", suf)))?)),
+                "Date" => Ok(Self::Date(DateTime::parse_from_rfc2822(suf).map_err(
+                    |_| Self::Error::InvalidField(format!("Unable to parse suffix {}", suf)),
+                )?)),
+                "Expires" => Ok(Self::Expires(DateTime::parse_from_rfc2822(suf).map_err(
+                    |_| Self::Error::InvalidField(format!("Unable to parse suffix {}", suf)),
+                )?)),
                 "From" => Ok(Self::From(suf.to_string())),
                 "Host" => Ok(Self::Host(suf.to_string())),
-                "If-Modified-Since" => Ok(Self::IfModifiedSince(DateTime::parse_from_rfc2822(suf).map_err(|_| Self::Error::InvalidField(format!("Unable to parse suffix {}", suf)))?)),
-                "Last-Modified" => Ok(Self::LastModified(DateTime::parse_from_rfc2822(suf).map_err(|_| Self::Error::InvalidField(format!("Unable to parse suffix {}", suf)))?)),
+                "If-Modified-Since" => Ok(Self::IfModifiedSince(
+                    DateTime::parse_from_rfc2822(suf).map_err(|_| {
+                        Self::Error::InvalidField(format!("Unable to parse suffix {}", suf))
+                    })?,
+                )),
+                "Last-Modified" => Ok(Self::LastModified(
+                    DateTime::parse_from_rfc2822(suf).map_err(|_| {
+                        Self::Error::InvalidField(format!("Unable to parse suffix {}", suf))
+                    })?,
+                )),
                 "Location" => Ok(Self::Location(suf.to_string())),
                 "Pragma" => Ok(Self::Pragma(suf.to_string())),
                 "Referer" => Ok(Self::Referer(suf.to_string())),
                 "Server" => Ok(Self::Server(suf.to_string())),
                 "User-Agent" => Ok(Self::UserAgent(suf.to_string())),
                 "WWW-Authenticate" => Ok(Self::WWWAuthenticate(suf.to_string())),
-                _ => Ok(Self::Generic((field.to_string(), suf.to_string())))
+                _ => Ok(Self::Generic((field.to_string(), suf.to_string()))),
             }
-        }else{
-            Err(HeaderErr::InvalidField(format!("Unable to parse field {}", value)))
+        } else {
+            Err(HeaderErr::InvalidField(format!(
+                "Unable to parse field {}",
+                value
+            )))
         }
     }
 }
@@ -107,11 +161,20 @@ mod tests {
 
     #[test]
     fn converts_authorization_from_string() {
-        assert_eq!(Header::try_from("Authorization: Bearer".to_string()).unwrap(), Header::Authorization("Bearer".to_string()));
+        assert_eq!(
+            Header::try_from("Authorization: Bearer".to_string()).unwrap(),
+            Header::Authorization("Bearer".to_string())
+        );
     }
 
     #[test]
     fn converts_if_modified_since_from_string() {
-        assert_eq!(Header::try_from("If-Modified-Since: Tue, 15 Nov 1994 08:12:31 GMT".to_string()).unwrap(), Header::IfModifiedSince(DateTime::parse_from_rfc2822("Tue, 15 Nov 1994 08:12:31 GMT").unwrap()));
+        assert_eq!(
+            Header::try_from("If-Modified-Since: Tue, 15 Nov 1994 08:12:31 GMT".to_string())
+                .unwrap(),
+            Header::IfModifiedSince(
+                DateTime::parse_from_rfc2822("Tue, 15 Nov 1994 08:12:31 GMT").unwrap()
+            )
+        );
     }
 }

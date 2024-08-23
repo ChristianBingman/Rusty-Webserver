@@ -1,5 +1,6 @@
 mod file;
 mod http10;
+mod middleware;
 mod threadpool;
 mod util;
 
@@ -16,6 +17,15 @@ pub struct Opts {
 
     /// protocol to use (supports http 1.0)
     pub protocol: String,
+
+    /// Auth for basic authentication
+    pub auth: Option<Auth>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Auth {
+    pub username: String,
+    pub password: String,
 }
 
 impl Default for Opts {
@@ -25,6 +35,7 @@ impl Default for Opts {
             bind: "127.0.0.1".to_string(),
             directory: "./".to_string(),
             protocol: "HTTP/1.0".to_string(),
+            auth: None,
         }
     }
 }
@@ -43,7 +54,7 @@ pub mod http_server {
     use crate::http10::result_codes::ResultCode;
     use crate::http10::{request::HTTPRequest, response::HTTPResponse};
     use crate::threadpool::ThreadPoolQ;
-    use crate::util;
+    use crate::{middleware, util};
 
     use super::Opts;
 
@@ -66,6 +77,25 @@ pub mod http_server {
                 Header::Date(Utc::now().into()),
                 Header::Server("Rusty Webserver".to_string()),
             ];
+
+            if let Some(auth) = &opts.auth {
+                match middleware::basic_auth(&req, auth) {
+                    Err(..) => {
+                        headers.push(Header::WWWAuthenticate("Basic".to_string()));
+                        return HTTPResponse::new(
+                            opts.protocol.clone(),
+                            ResultCode::Unauthorized,
+                            headers,
+                            Some(
+                                Into::<String>::into(ResultCode::Unauthorized)
+                                    .as_bytes()
+                                    .to_vec(),
+                            ),
+                        );
+                    }
+                    Ok(..) => (),
+                }
+            }
 
             match req.method {
                 Method::GET => {

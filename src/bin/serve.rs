@@ -12,6 +12,7 @@ fn main() {
         .arg(Arg::new("bind").default_value("127.0.0.1").short('b').long("bind"))
         .arg(Arg::new("directory").default_value("./").short('d').long("directory"))
         .arg(Arg::new("poolsize").value_parser(value_parser!(usize)).default_value("5").short('s').long("poolsize"))
+        .arg(Arg::new("auth").help("Basic auth in the form of username:password").short('a').long("auth"))
         .get_matches();
 
     let port = *matches.get_one::<u16>("port").unwrap();
@@ -19,11 +20,22 @@ fn main() {
     let bind = matches.get_one::<String>("bind").unwrap().to_string();
     let directory = matches.get_one::<String>("directory").unwrap().to_string();
     let poolsize = *matches.get_one::<usize>("poolsize").unwrap();
+    let auth = match matches.get_one::<String>("auth") {
+        Some(auth_str) => {
+            let (username, password) = auth_str.split_once(':').expect("Invalid auth string");
+            Some(Auth {
+                username: username.to_string(),
+                password: password.to_string(),
+            })
+        }
+        None => None,
+    };
     let args = Opts {
         port,
         bind,
         protocol,
         directory,
+        auth,
     };
 
     // Initialize a new logger
