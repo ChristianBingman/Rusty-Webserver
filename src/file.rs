@@ -3,6 +3,8 @@ use std::ffi::OsStr;
 use std::path::Path;
 use std::{fs, io};
 
+use chrono::{DateTime, FixedOffset, Utc};
+
 use crate::http10::content_types::get_mime;
 
 const TRYFILES: [&'static str; 2] = ["/index.html", "/index.htm"];
@@ -21,6 +23,7 @@ pub struct File {
     mime_type: String,
     content: Vec<u8>,
     size: usize,
+    modified: DateTime<Utc>,
 }
 
 impl std::fmt::Display for File {
@@ -65,6 +68,7 @@ impl File {
                 content: content.unwrap(),
                 mime_type,
                 size,
+                modified: fs::metadata(path).unwrap().modified().unwrap().into(),
             })
         } else {
             Err(FileError::ReadError(content.unwrap_err()))
@@ -81,6 +85,10 @@ impl File {
 
     pub fn get_size(&self) -> usize {
         self.size
+    }
+
+    pub fn get_modified(&self) -> DateTime<FixedOffset> {
+        self.modified.into()
     }
 
     pub fn get_listing(uri: &str, base_dir: &str) -> Vec<String> {

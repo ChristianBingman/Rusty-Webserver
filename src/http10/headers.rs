@@ -49,6 +49,13 @@ impl Header {
             _ => None,
         }
     }
+
+    pub fn date_inner(&self) -> Option<DateTime<FixedOffset>> {
+        match self {
+            Self::IfModifiedSince(inner) => Some(inner.clone()),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for Header {

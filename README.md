@@ -12,7 +12,8 @@ Provides an implementation of an http 1.0 file server. Essentially like python3'
 - [x] Implement basic authentication
 - [ ] Logging
 - [ ] Handle passing of multiple of the same header type
-- [ ] Handle last-modified, if-modified-since, and 304
+- [x] Handle last-modified, if-modified-since, and 304
+- [ ] Make header searching more efficient
 - [ ] Handle return codes better
   - [ ] Implement a server error and 404 page
 - [-] Testing

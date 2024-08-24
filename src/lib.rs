@@ -102,8 +102,23 @@ pub mod http_server {
                     let f = File::try_load(&req.uri, &opts.directory);
                     match f {
                         Ok(file) => {
+                            let cond_modified = req.headers.iter().find(|header| {
+                                matches!(header, crate::http10::headers::Header::IfModifiedSince(_))
+                            });
+                            if let Some(cond_modified) = cond_modified {
+                                let dt = cond_modified.date_inner();
+                                if dt.is_some() && dt.unwrap() > file.get_modified() {
+                                    return HTTPResponse::new(
+                                        opts.protocol.clone(),
+                                        ResultCode::NotModified,
+                                        headers,
+                                        None,
+                                    );
+                                }
+                            }
                             headers.push(Header::ContentType(file.get_mime()));
                             headers.push(Header::ContentLength(file.get_size()));
+                            headers.push(Header::LastModified(file.get_modified()));
                             HTTPResponse::new(
                                 opts.protocol.clone(),
                                 ResultCode::OK,
@@ -158,7 +173,61 @@ pub mod http_server {
                     }
                 }
                 Method::HEAD => {
-                    HTTPResponse::new(opts.protocol.clone(), ResultCode::OK, headers, None)
+                    let f = File::try_load(&req.uri, &opts.directory);
+                    match f {
+                        Ok(file) => {
+                            let cond_modified = req.headers.iter().find(|header| {
+                                matches!(header, crate::http10::headers::Header::IfModifiedSince(_))
+                            });
+                            if let Some(cond_modified) = cond_modified {
+                                let dt = cond_modified.date_inner();
+                                if dt.is_some() && dt.unwrap() > file.get_modified() {
+                                    return HTTPResponse::new(
+                                        opts.protocol.clone(),
+                                        ResultCode::NotModified,
+                                        headers,
+                                        None,
+                                    );
+                                }
+                            }
+                            headers.push(Header::ContentType(file.get_mime()));
+                            headers.push(Header::ContentLength(file.get_size()));
+                            headers.push(Header::LastModified(file.get_modified()));
+                            HTTPResponse::new(opts.protocol.clone(), ResultCode::OK, headers, None)
+                        }
+                        Err(err) => match err {
+                            FileError::ReadError(err)
+                                if err.kind() == std::io::ErrorKind::NotFound =>
+                            {
+                                headers.push(Header::ContentType("text/plain".to_string()));
+                                HTTPResponse::new(
+                                    opts.protocol.clone(),
+                                    ResultCode::NotFound,
+                                    headers,
+                                    None,
+                                )
+                            }
+                            FileError::IsADirectory => {
+                                // Get a listing of files
+                                headers.push(Header::ContentType("text/plain".to_string()));
+                                HTTPResponse::new(
+                                    opts.protocol.clone(),
+                                    ResultCode::NotFound,
+                                    headers,
+                                    None,
+                                )
+                            }
+                            _ => {
+                                headers.push(Header::ContentType("text/plain".to_string()));
+                                HTTPResponse::new(
+                                    opts.protocol.clone(),
+                                    ResultCode::InternalServerError,
+                                    headers,
+                                    None,
+                                )
+                            }
+                        },
+                    }
                 }
                 Method::POST => {
                     log::info!(
