@@ -1,6 +1,8 @@
 pub mod html {
     use std::path::Path;
 
+    use crate::http10::result_codes::ResultCode;
+
     pub fn dir_listing(paths: Vec<String>) -> String {
         format!(
             "<html>\n\
@@ -23,6 +25,21 @@ pub mod html {
                 ))
                 .collect::<Vec<String>>()
                 .join("\n")
+        )
+    }
+
+    pub fn error_page(err: ResultCode) -> String {
+        format!(
+            "<html>\n\
+            <head>\n\
+                <title>{}</title>\n\
+            </head>\n\
+            <body>\n\
+                <h1>{}</h1>\n\
+            </body>\n\
+        </html>",
+            Into::<String>::into(err),
+            Into::<String>::into(err)
         )
     }
 

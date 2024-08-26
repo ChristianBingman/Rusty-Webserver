@@ -54,6 +54,7 @@ pub mod http_server {
     use crate::http10::result_codes::ResultCode;
     use crate::http10::{request::HTTPRequest, response::HTTPResponse};
     use crate::threadpool::ThreadPoolQ;
+    use crate::util::html::error_page;
     use crate::{middleware, util};
 
     use super::Opts;
@@ -82,15 +83,12 @@ pub mod http_server {
                 match middleware::basic_auth(&req, auth) {
                     Err(..) => {
                         headers.push(Header::WWWAuthenticate("Basic".to_string()));
+                        headers.push(Header::ContentType("text/html".to_string()));
                         return HTTPResponse::new(
                             opts.protocol.clone(),
                             ResultCode::Unauthorized,
                             headers,
-                            Some(
-                                Into::<String>::into(ResultCode::Unauthorized)
-                                    .as_bytes()
-                                    .to_vec(),
-                            ),
+                            Some(error_page(ResultCode::Unauthorized).as_bytes().to_vec()),
                         );
                     }
                     Ok(..) => (),
@@ -130,16 +128,12 @@ pub mod http_server {
                             FileError::ReadError(err)
                                 if err.kind() == std::io::ErrorKind::NotFound =>
                             {
-                                headers.push(Header::ContentType("text/plain".to_string()));
+                                headers.push(Header::ContentType("text/html".to_string()));
                                 HTTPResponse::new(
                                     opts.protocol.clone(),
                                     ResultCode::NotFound,
                                     headers,
-                                    Some(
-                                        Into::<String>::into(ResultCode::NotFound)
-                                            .as_bytes()
-                                            .to_vec(),
-                                    ),
+                                    Some(error_page(ResultCode::NotFound).as_bytes().to_vec()),
                                 )
                             }
                             FileError::IsADirectory => {
@@ -157,13 +151,13 @@ pub mod http_server {
                                 )
                             }
                             _ => {
-                                headers.push(Header::ContentType("text/plain".to_string()));
+                                headers.push(Header::ContentType("text/html".to_string()));
                                 HTTPResponse::new(
                                     opts.protocol.clone(),
                                     ResultCode::InternalServerError,
                                     headers,
                                     Some(
-                                        Into::<String>::into(ResultCode::InternalServerError)
+                                        error_page(ResultCode::InternalServerError)
                                             .as_bytes()
                                             .to_vec(),
                                     ),
@@ -199,7 +193,6 @@ pub mod http_server {
                             FileError::ReadError(err)
                                 if err.kind() == std::io::ErrorKind::NotFound =>
                             {
-                                headers.push(Header::ContentType("text/plain".to_string()));
                                 HTTPResponse::new(
                                     opts.protocol.clone(),
                                     ResultCode::NotFound,
@@ -209,7 +202,6 @@ pub mod http_server {
                             }
                             FileError::IsADirectory => {
                                 // Get a listing of files
-                                headers.push(Header::ContentType("text/plain".to_string()));
                                 HTTPResponse::new(
                                     opts.protocol.clone(),
                                     ResultCode::NotFound,
@@ -217,15 +209,12 @@ pub mod http_server {
                                     None,
                                 )
                             }
-                            _ => {
-                                headers.push(Header::ContentType("text/plain".to_string()));
-                                HTTPResponse::new(
-                                    opts.protocol.clone(),
-                                    ResultCode::InternalServerError,
-                                    headers,
-                                    None,
-                                )
-                            }
+                            _ => HTTPResponse::new(
+                                opts.protocol.clone(),
+                                ResultCode::InternalServerError,
+                                headers,
+                                None,
+                            ),
                         },
                     }
                 }
@@ -234,16 +223,12 @@ pub mod http_server {
                         "Received POST Data {:?}",
                         str::from_utf8(req.body.unwrap().as_ref())
                     );
-                    headers.push(Header::ContentType("text/plain".to_string()));
+                    headers.push(Header::ContentType("text/html".to_string()));
                     HTTPResponse::new(
                         opts.protocol.clone(),
                         ResultCode::NotImplemented,
                         headers,
-                        Some(
-                            Into::<String>::into(ResultCode::NotImplemented)
-                                .as_bytes()
-                                .to_vec(),
-                        ),
+                        Some(error_page(ResultCode::NotImplemented).as_bytes().to_vec()),
                     )
                 }
             }
