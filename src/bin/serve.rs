@@ -1,5 +1,5 @@
+use clap::builder::PossibleValuesParser;
 use clap::{value_parser, Arg, Command};
-use simple_logger::SimpleLogger;
 use simple_webserver::http_server::*;
 use simple_webserver::*;
 
@@ -13,6 +13,7 @@ fn main() {
         .arg(Arg::new("directory").default_value("./").short('d').long("directory"))
         .arg(Arg::new("poolsize").value_parser(value_parser!(usize)).default_value("5").short('s').long("poolsize"))
         .arg(Arg::new("auth").help("Basic auth in the form of username:password").short('a').long("auth"))
+        .arg(Arg::new("level").default_value("Info").short('l').long("log-level").value_parser(PossibleValuesParser::new(["Debug", "Info", "Warn"])))
         .get_matches();
 
     let port = *matches.get_one::<u16>("port").unwrap();
@@ -30,6 +31,12 @@ fn main() {
         }
         None => None,
     };
+    let level = match matches.get_one::<String>("level").unwrap().as_str() {
+        "Debug" => log::Level::Debug,
+        "Info" => log::Level::Info,
+        "Warn" => log::Level::Warn,
+        _ => log::Level::Info,
+    };
     let args = Opts {
         port,
         bind,
@@ -39,7 +46,7 @@ fn main() {
     };
 
     // Initialize a new logger
-    SimpleLogger::new().init().unwrap();
+    simple_logger::init_with_level(level).unwrap();
     log::info!("Logging started...");
 
     //let http_server = HTTPServer::new(HTTPServerClass::Simple, args, None);

@@ -137,8 +137,10 @@ pub mod http_server {
                                 )
                             }
                             FileError::IsADirectory => {
+                                log::debug!("{} is a directory", &req.uri);
                                 // Get a listing of files
                                 let files = File::get_listing(&req.uri, &opts.directory);
+                                log::debug!("Returning files: {}", &files.join("\n"));
 
                                 let body = util::html::dir_listing(files);
 
@@ -239,17 +241,12 @@ pub mod http_server {
             handler: &Box<dyn Fn(HTTPRequest, &Arc<Opts>) -> HTTPResponse + Send + Sync + 'static>,
             opts: &Arc<Opts>,
         ) {
-            let local: String = match stream.local_addr() {
-                Ok(addr) => addr.to_string(),
-                Err(_) => "Invalid Address".to_string(),
-            };
             let remote: String = match stream.peer_addr() {
                 Ok(addr) => addr.to_string(),
                 Err(_) => "Invalid Address".to_string(),
             };
             let mut request: Vec<u8> = Vec::new();
             let mut buf = [0u8; 4096];
-            log::info!("Received connection from {} to {}", remote, local);
             while HTTPRequest::try_from(&request).is_err() {
                 match stream.read(&mut buf) {
                     Ok(0) => break,
@@ -261,9 +258,61 @@ pub mod http_server {
                 }
             }
             let request = HTTPRequest::try_from(&request).unwrap();
-            stream
-                .write_all(handler(request, opts).as_bytes().as_slice())
-                .unwrap();
+            let headline = format!(
+                "{} {} {}",
+                Into::<String>::into(request.method),
+                request.uri,
+                request.version
+            );
+            let user_agent = request
+                .headers
+                .iter()
+                .find(|header| matches!(header, crate::http10::headers::Header::UserAgent(_)));
+            let user_agent = if user_agent.is_some() {
+                user_agent.unwrap().str_inner().unwrap()
+            } else {
+                "-".to_string()
+            };
+            let req_headers = request
+                .headers
+                .clone()
+                .iter()
+                .map(|header| header.to_string())
+                .collect::<Vec<String>>()
+                .join("\n");
+
+            let mut resp = handler(request, opts);
+            let code = Into::<usize>::into(resp.status);
+            let content_len = resp
+                .headers
+                .iter()
+                .find(|header| matches!(header, Header::ContentLength(_)));
+            let content_len = if content_len.is_some() {
+                content_len.unwrap().num_inner().unwrap()
+            } else {
+                0
+            };
+            let resp_headers = resp
+                .headers
+                .clone()
+                .iter()
+                .map(|header| header.to_string())
+                .collect::<Vec<String>>()
+                .join("\n");
+            stream.write_all(resp.as_bytes().as_slice()).unwrap();
+            log::info!(
+                "{} {} {} {} {}",
+                headline,
+                code,
+                content_len,
+                user_agent,
+                remote
+            );
+            log::debug!(
+                "Request headers: {}\nResponse Headers: {}",
+                req_headers,
+                resp_headers
+            );
         }
 
         pub fn new(
@@ -289,22 +338,25 @@ pub mod http_server {
         }
 
         pub fn serve_forever(self) {
+            let listener = TcpListener::bind(format!("{}:{}", self.opts.bind, self.opts.port))
+                .expect("Unable to bind!");
+
+            log::info!("Started listener on {}:{}", self.opts.bind, self.opts.port);
+
             match self.class {
                 HTTPServerClass::Simple => {
-                    let listener =
-                        TcpListener::bind(format!("{}:{}", self.opts.bind, self.opts.port))
-                            .expect("Unable to bind!");
                     let opts = Arc::clone(&self.opts);
 
                     for stream in listener.incoming() {
-                        HTTPServer::handle_stream(stream.expect("Test"), &self.handler, &opts);
+                        match stream {
+                            Ok(stream) => HTTPServer::handle_stream(stream, &self.handler, &opts),
+                            Err(e) => {
+                                log::error!("Failed to establish a connection: {}", e);
+                            }
+                        }
                     }
                 }
                 HTTPServerClass::Threaded => {
-                    let listener =
-                        TcpListener::bind(format!("{}:{}", self.opts.bind, self.opts.port))
-                            .expect("Unable to bind!");
-
                     let handler = Arc::new(self.handler);
 
                     for stream in listener.incoming() {
@@ -317,16 +369,12 @@ pub mod http_server {
                                 });
                             }
                             Err(e) => {
-                                eprintln!("Failed to establish a connection: {}", e);
+                                log::error!("Failed to establish a connection: {}", e);
                             }
                         }
                     }
                 }
                 HTTPServerClass::ThreadPooled(threads) => {
-                    let listener =
-                        TcpListener::bind(format!("{}:{}", self.opts.bind, self.opts.port))
-                            .expect("Unable to bind!");
-
                     let opts = Arc::clone(&self.opts);
                     let mut tpq = ThreadPoolQ::new(threads, move |stream| {
                         HTTPServer::handle_stream(stream, &self.handler, &opts)
@@ -337,7 +385,7 @@ pub mod http_server {
                                 tpq.push_job(stream);
                             }
                             Err(e) => {
-                                eprintln!("Failed to establish a connection: {}", e);
+                                log::error!("Failed to establish a connection: {}", e);
                             }
                         }
                     }

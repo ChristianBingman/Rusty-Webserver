@@ -4,21 +4,37 @@ use super::{headers::Header, result_codes::ResultCode};
 
 #[derive(Debug, Clone)]
 pub struct HTTPResponse {
-    version: String,
-    status: ResultCode,
-    headers: Vec<Header>,
-    body: Option<Vec<u8>>,
+    pub version: String,
+    pub status: ResultCode,
+    pub headers: Vec<Header>,
+    pub body: Option<Vec<u8>>,
 }
 
 impl HTTPResponse {
-    pub fn new(version: impl Into<String>, status: ResultCode, headers: Vec<Header>, body: Option<Vec<u8>>) -> Self {
-        HTTPResponse { version: version.into(), status, headers, body }
+    pub fn new(
+        version: impl Into<String>,
+        status: ResultCode,
+        headers: Vec<Header>,
+        body: Option<Vec<u8>>,
+    ) -> Self {
+        HTTPResponse {
+            version: version.into(),
+            status,
+            headers,
+            body,
+        }
     }
 
     pub fn as_bytes(&mut self) -> Vec<u8> {
         let mut bytes: Vec<u8> = Vec::new();
-        let mut response: String = format!("{} {}\r\n", self.version, Into::<String>::into(self.status));
-        response += (&self.headers).into_iter().map(|header| header.to_string()).collect::<Vec<String>>().join("\r\n").as_str();
+        let mut response: String =
+            format!("{} {}\r\n", self.version, Into::<String>::into(self.status));
+        response += (&self.headers)
+            .into_iter()
+            .map(|header| header.to_string())
+            .collect::<Vec<String>>()
+            .join("\r\n")
+            .as_str();
         response += "\r\n\r\n";
         bytes.append(&mut response.as_bytes().to_vec());
         if let Some(body) = &mut self.body {
@@ -30,7 +46,11 @@ impl HTTPResponse {
 
 impl std::fmt::Display for HTTPResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{} {}\r\n", self.version, Into::<String>::into(self.status)))?;
+        f.write_fmt(format_args!(
+            "{} {}\r\n",
+            self.version,
+            Into::<String>::into(self.status)
+        ))?;
         for header in &self.headers {
             f.write_str(&header.to_string())?;
             f.write_str("\r\n")?;

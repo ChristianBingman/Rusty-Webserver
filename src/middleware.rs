@@ -25,6 +25,12 @@ pub fn basic_auth(req: &HTTPRequest, auth: &Auth) -> Result<(), AuthError> {
         {
             return Ok(());
         }
+        log::debug!(
+            "Auth failure: {} does not match {}",
+            base64::engine::general_purpose::STANDARD
+                .encode(format!("{}:{}", auth.username, auth.password)),
+            token.unwrap()
+        );
     }
     Err(AuthError {})
 }

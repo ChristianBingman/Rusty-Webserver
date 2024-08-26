@@ -46,6 +46,7 @@ impl Header {
     pub fn str_inner(&self) -> Option<String> {
         match self {
             Self::Authorization(inner) => Some(inner.to_string()),
+            Self::UserAgent(inner) => Some(inner.to_string()),
             _ => None,
         }
     }
@@ -53,6 +54,13 @@ impl Header {
     pub fn date_inner(&self) -> Option<DateTime<FixedOffset>> {
         match self {
             Self::IfModifiedSince(inner) => Some(inner.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn num_inner(&self) -> Option<usize> {
+        match self {
+            Self::ContentLength(inner) => Some(*inner),
             _ => None,
         }
     }
