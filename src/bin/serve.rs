@@ -8,6 +8,7 @@ fn main() {
         .version("1.0")
         .about("Simple webserver that implements the HTTP/1.0 protocal and serves files from your local directory")
         .arg(Arg::new("port").value_parser(value_parser!(u16)).default_value("8080").short('p').long("port"))
+        .arg(Arg::new("ratio").value_parser(value_parser!(u32)).default_value("6").short('r').long("ratio").help("Compression ratio used for GZIP and DEFLATE compression"))
         .arg(Arg::new("protocol").default_value("HTTP/1.0").long("protocol"))
         .arg(Arg::new("bind").default_value("127.0.0.1").short('b').long("bind"))
         .arg(Arg::new("directory").default_value("./").short('d').long("directory"))
@@ -37,12 +38,17 @@ fn main() {
         "Warn" => log::Level::Warn,
         _ => log::Level::Info,
     };
+    let ratio = *matches.get_one::<u32>("ratio").unwrap();
+    if ratio > 9 {
+        panic!("Compression ratio must be between 0-9");
+    }
     let args = Opts {
         port,
         bind,
         protocol,
         directory,
         auth,
+        ratio,
     };
 
     // Initialize a new logger

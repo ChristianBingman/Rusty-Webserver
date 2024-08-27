@@ -20,6 +20,9 @@ pub struct Opts {
 
     /// Auth for basic authentication
     pub auth: Option<Auth>,
+
+    /// compression ratio (0-9, default 6)
+    pub ratio: u32,
 }
 
 #[derive(Debug, PartialEq)]
@@ -36,6 +39,7 @@ impl Default for Opts {
             directory: "./".to_string(),
             protocol: "HTTP/1.0".to_string(),
             auth: None,
+            ratio: 6,
         }
     }
 }
@@ -49,6 +53,7 @@ pub mod http_server {
     use chrono::Utc;
 
     use crate::file::{File, FileError};
+    use crate::http10::content_codings::ContentEncoding;
     use crate::http10::headers::Header;
     use crate::http10::methods::Method;
     use crate::http10::result_codes::ResultCode;
@@ -99,7 +104,7 @@ pub mod http_server {
                 Method::GET => {
                     let f = File::try_load(&req.uri, &opts.directory);
                     match f {
-                        Ok(file) => {
+                        Ok(mut file) => {
                             let cond_modified = req.headers.iter().find(|header| {
                                 matches!(header, crate::http10::headers::Header::IfModifiedSince(_))
                             });
@@ -112,6 +117,22 @@ pub mod http_server {
                                         headers,
                                         None,
                                     );
+                                }
+                            }
+                            let encodings = req.headers.iter().find(|header| {
+                                matches!(header, crate::http10::headers::Header::AcceptEncoding(..))
+                            });
+
+                            if let Some(encodings) = encodings {
+                                if let Some(encodings) = encodings.encodings_inner() {
+                                    if encodings
+                                        .iter()
+                                        .find(|encoding| **encoding == ContentEncoding::TOKEN)
+                                        .is_none()
+                                    {
+                                        headers.push(Header::ContentEncoding(encodings[0].clone()));
+                                        file = file.compress(&encodings[0], opts.ratio).unwrap();
+                                    }
                                 }
                             }
                             headers.push(Header::ContentType(file.get_mime()));

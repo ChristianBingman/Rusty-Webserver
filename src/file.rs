@@ -1,10 +1,14 @@
 use core::str;
 use std::ffi::OsStr;
+use std::io::Write;
 use std::path::Path;
 use std::{fs, io};
 
 use chrono::{DateTime, FixedOffset, Utc};
+use flate2::write::{DeflateEncoder, GzEncoder};
+use flate2::{CompressError, Compression};
 
+use crate::http10::content_codings::ContentEncoding;
 use crate::http10::content_types::get_mime;
 
 const TRYFILES: [&'static str; 2] = ["/index.html", "/index.htm"];
@@ -98,5 +102,40 @@ impl File {
         files
             .map(|file| file.unwrap().path().display().to_string())
             .collect()
+    }
+
+    pub fn compress(
+        self,
+        compression: &ContentEncoding,
+        ratio: u32,
+    ) -> Result<Self, CompressError> {
+        log::debug!("Encoding {} as {}", self.path, compression);
+        match compression {
+            ContentEncoding::GZIP => {
+                let mut enc = GzEncoder::new(Vec::new(), Compression::new(ratio));
+                enc.write_all(&self.content).unwrap();
+
+                let comp = enc.finish().unwrap();
+
+                Ok(File {
+                    size: comp.len(),
+                    content: comp,
+                    ..self
+                })
+            }
+            ContentEncoding::DEFLATE => {
+                let mut enc = DeflateEncoder::new(Vec::new(), Compression::new(ratio));
+                enc.write_all(&self.content).unwrap();
+
+                let comp = enc.finish().unwrap();
+
+                Ok(File {
+                    size: comp.len(),
+                    content: comp,
+                    ..self
+                })
+            }
+            _ => Ok(self),
+        }
     }
 }

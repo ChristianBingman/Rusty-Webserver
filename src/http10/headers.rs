@@ -22,6 +22,7 @@ impl std::fmt::Display for HeaderErr {
 #[allow(dead_code)]
 pub enum Header {
     Accept(String),
+    AcceptEncoding(Vec<ContentEncoding>),
     Allow(Vec<Method>),
     Authorization(String),
     ContentEncoding(ContentEncoding),
@@ -64,12 +65,27 @@ impl Header {
             _ => None,
         }
     }
+
+    pub fn encodings_inner(&self) -> Option<Vec<ContentEncoding>> {
+        match self {
+            Self::AcceptEncoding(inner) => Some(inner.clone()),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for Header {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Header::Accept(suf) => f.write_fmt(format_args!("Accept: {}", suf)),
+            Header::AcceptEncoding(encodings) => f.write_fmt(format_args!(
+                "Accept-Encoding: {}",
+                encodings
+                    .iter()
+                    .map(|coding| coding.to_string())
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            )),
             Header::Allow(methods) => f.write_fmt(format_args!(
                 "Allow: {}",
                 methods
@@ -113,6 +129,21 @@ impl TryFrom<String> for Header {
             let suf = suffix.trim();
             match field {
                 "Accept" => Ok(Self::Accept(suf.to_string())),
+                "Accept-Encoding" => {
+                    let codings = suf
+                        .split(',')
+                        .map(|coding| ContentEncoding::try_from(coding.trim()))
+                        .filter_map(|coding| coding.ok())
+                        .collect::<Vec<ContentEncoding>>();
+                    if codings.is_empty() {
+                        Err(Self::Error::InvalidField(format!(
+                            "No supported formats in: {}",
+                            suf
+                        )))
+                    } else {
+                        dbg!(Ok(Self::AcceptEncoding(codings)))
+                    }
+                }
                 "Allow" => {
                     let methods = suf
                         .split(',')

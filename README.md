@@ -11,6 +11,7 @@ Provides an implementation of an http 1.0 file server. Essentially like python3'
 - [x] Show directory listings
 - [x] Implement basic authentication
 - [x] Logging
+- [x] Handle content codings
 - [ ] Handle passing of multiple of the same header type
 - [x] Handle last-modified, if-modified-since, and 304
 - [ ] Make header searching more efficient
@@ -20,7 +21,6 @@ Provides an implementation of an http 1.0 file server. Essentially like python3'
   - [x] ThreadPool implementation
   - [ ] Request parsing
   - [ ] Responses
-- [ ] Handle content codings
 
 The server accepts HTTP 1.1 requests as well, but it will only ever respond with HTTP 1.0, and doesn't support HTTP 1.0 features such as
 

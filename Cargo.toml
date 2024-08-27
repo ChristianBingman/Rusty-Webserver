@@ -7,5 +7,6 @@ edition = "2021"
 base64 = "0.22.1"
 chrono = "0.4.38"
 clap = { version = "4.5.16", features = ["derive"] }
+flate2 = { version = "1.0.32", features = ["any_zlib", "libz-sys"] }
 log = "0.4.22"
 simple_logger = "5.0.0"

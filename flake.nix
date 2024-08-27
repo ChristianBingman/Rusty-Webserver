@@ -47,6 +47,7 @@
             rust-analyzer
             neovim
             zsh
+            libz
           ];
         };
       });
