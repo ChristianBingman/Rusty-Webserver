@@ -12,15 +12,18 @@ Provides an implementation of an http 1.0 file server. Essentially like python3'
 - [x] Implement basic authentication
 - [x] Logging
 - [x] Handle content codings
-- [ ] Handle passing of multiple of the same header type
+- [x] Handle passing of multiple of the same header type
 - [x] Handle last-modified, if-modified-since, and 304
-- [ ] Make header searching more efficient
+- [x] Make header searching more efficient
 - [ ] Handle return codes better
   - [x] Implement a server error and 404 page
 - [-] Testing
   - [x] ThreadPool implementation
   - [ ] Request parsing
   - [ ] Responses
+- [ ] Cleanup & Code Reduction
+  - [ ] HEAD and GET duplicated code
+  - [ ] Headers use many repeated matches
 
 The server accepts HTTP 1.1 requests as well, but it will only ever respond with HTTP 1.0, and doesn't support HTTP 1.0 features such as
 

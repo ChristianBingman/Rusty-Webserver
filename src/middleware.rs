@@ -1,18 +1,23 @@
 use base64::Engine;
 
-use crate::{http10::request::HTTPRequest, Auth};
+use crate::{
+    http10::{
+        headers::{Header, HeaderVariant},
+        request::HTTPRequest,
+    },
+    Auth,
+};
 
 #[derive(Debug)]
 pub struct AuthError {}
 
 pub fn basic_auth(req: &HTTPRequest, auth: &Auth) -> Result<(), AuthError> {
-    let auth_header = req
-        .headers
-        .iter()
-        .find(|header| matches!(header, crate::http10::headers::Header::Authorization(_)));
+    let auth_header = req.headers.get(HeaderVariant::Authorization);
 
     if let Some(auth_header) = auth_header {
-        let inner = auth_header.str_inner().unwrap();
+        let Header::Authorization(inner) = auth_header else {
+            return Err(AuthError {});
+        };
         let mut inner = inner.split(' ');
         let typ = inner.next();
         let token = inner.next();
@@ -37,19 +42,21 @@ pub fn basic_auth(req: &HTTPRequest, auth: &Auth) -> Result<(), AuthError> {
 
 #[cfg(test)]
 mod test {
-    use crate::http10::headers::Header;
+    use crate::http10::headers::{Header, Headers};
 
     use super::*;
 
     #[test]
     fn test_basic_auth_success() {
+        let mut headers = Headers::new();
+        headers.set(Header::Authorization(
+            "Basic YWRtaW46cGFzc3dvcmQ=".to_string(),
+        ));
         let req = HTTPRequest {
             method: crate::http10::methods::Method::GET,
             uri: "/".to_string(),
             version: "HTTP/1.0".to_string(),
-            headers: vec![Header::Authorization(
-                "Basic YWRtaW46cGFzc3dvcmQ=".to_string(),
-            )],
+            headers,
             body: None,
         };
         let auth = Auth {
@@ -66,7 +73,7 @@ mod test {
             method: crate::http10::methods::Method::GET,
             uri: "/".to_string(),
             version: "HTTP/1.0".to_string(),
-            headers: vec![],
+            headers: Headers::new(),
             body: None,
         };
         let auth = Auth {
@@ -78,13 +85,15 @@ mod test {
 
     #[test]
     fn test_basic_auth_incorrect_basic() {
+        let mut headers = Headers::new();
+        headers.set(Header::Authorization(
+            "Basic YWRtaW46cGFzc3dvcmQx".to_string(),
+        ));
         let req = HTTPRequest {
             method: crate::http10::methods::Method::GET,
             uri: "/".to_string(),
             version: "HTTP/1.0".to_string(),
-            headers: vec![Header::Authorization(
-                "Basic YWRtaW46cGFzc3dvcmQx".to_string(),
-            )],
+            headers,
             body: None,
         };
         let auth = Auth {

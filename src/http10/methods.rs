@@ -1,11 +1,11 @@
 #[derive(Debug)]
 pub struct InvalidMethodErr;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum Method {
     GET,
     POST,
-    HEAD
+    HEAD,
 }
 
 impl TryFrom<String> for Method {
@@ -16,7 +16,7 @@ impl TryFrom<String> for Method {
             "GET" => Ok(Method::GET),
             "POST" => Ok(Method::POST),
             "HEAD" => Ok(Method::HEAD),
-            _ => Err(InvalidMethodErr)
+            _ => Err(InvalidMethodErr),
         }
     }
 }
@@ -29,7 +29,7 @@ impl TryFrom<&str> for Method {
             "GET" => Ok(Method::GET),
             "POST" => Ok(Method::POST),
             "HEAD" => Ok(Method::HEAD),
-            _ => Err(InvalidMethodErr)
+            _ => Err(InvalidMethodErr),
         }
     }
 }
@@ -39,7 +39,8 @@ impl From<Method> for String {
         match value {
             Method::GET => "GET",
             Method::POST => "POST",
-            Method::HEAD => "HEAD"
-        }.to_string()
+            Method::HEAD => "HEAD",
+        }
+        .to_string()
     }
 }

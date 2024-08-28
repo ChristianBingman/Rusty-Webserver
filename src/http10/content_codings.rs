@@ -1,7 +1,7 @@
 #[derive(Debug)]
 pub struct InvalidContentEncodingErr;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum ContentEncoding {
     GZIP,
     DEFLATE,

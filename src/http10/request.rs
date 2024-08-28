@@ -1,5 +1,5 @@
 use super::convert_iso_8859_1_to_utf8;
-use super::headers::Header;
+use super::headers::{Header, HeaderVariant, Headers};
 use super::methods::Method;
 
 #[derive(Debug)]
@@ -16,7 +16,7 @@ pub struct HTTPRequest {
     pub method: Method,
     pub uri: String,
     pub version: String,
-    pub headers: Vec<Header>,
+    pub headers: Headers,
     pub body: Option<Vec<u8>>,
 }
 
@@ -60,32 +60,25 @@ impl TryFrom<&Vec<u8>> for HTTPRequest {
         }
         let (header_lines, body) = &req.split_at(spl_ind.unwrap() + 4);
         let header_lines_str = convert_iso_8859_1_to_utf8(&header_lines.to_vec());
-        let mut headers = header_lines_str
-            .strip_suffix("\r\n\r\n")
-            .unwrap()
-            .split("\r\n");
-        let (method, uri, version) =
-            headers
-                .next()
-                .map(|reqline| parse_request_line(reqline))
-                .ok_or(Self::Error::ParseError("No request line".to_string()))??;
+        let headers = header_lines_str.split_once("\r\n");
+        if headers.is_none() {
+            return Err(Self::Error::ParseError(
+                "Unable to split header line".to_string(),
+            ));
+        }
+        let headers = headers.unwrap();
+        let (method, uri, version) = parse_request_line(headers.0)
+            .map_err(|_| Self::Error::ParseError("No request line".to_string()))?;
 
-        let headers: Vec<Header> = headers
-            .map(|line| {
-                Header::try_from(line.to_string())
-                    .map_err(|err| Self::Error::ParseError(err.to_string()))
-            })
-            .collect::<Result<Vec<Header>, ReqError>>()?;
+        let headers: Headers = Headers::try_from(headers.1).map_err(|err| {
+            Self::Error::ParseError(format!("Unable to parse request line: {}", err))
+        })?;
 
-        let len: Vec<&usize> = headers
-            .iter()
-            .filter_map(|e| match e {
-                Header::ContentLength(len) => Some(len),
-                _ => None,
-            })
-            .collect();
-        if let Some(len) = len.get(0) {
-            if **len != body.len() {
+        if let Some(len) = headers.get(HeaderVariant::ContentLength) {
+            let Header::ContentLength(len) = len else {
+                return Err(Self::Error::ContentLenError);
+            };
+            if len != body.len() {
                 return Err(Self::Error::ContentLenError);
             }
         }

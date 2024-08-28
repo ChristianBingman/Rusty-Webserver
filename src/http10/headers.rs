@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use chrono::{DateTime, FixedOffset};
 
 use super::{
@@ -16,6 +18,238 @@ impl std::fmt::Display for HeaderErr {
             Self::InvalidField(err) => f.write_fmt(format_args!("Invalid Field: {}", err)),
         }
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Headers {
+    headers: HashMap<HeaderVariant, Header>,
+    extra: Vec<Header>,
+}
+
+impl Headers {
+    pub fn new() -> Headers {
+        Headers {
+            headers: HashMap::new(),
+            extra: Vec::new(),
+        }
+    }
+    pub fn get(&self, header: HeaderVariant) -> Option<Header> {
+        self.headers.get(&header).cloned()
+    }
+
+    pub fn set(&mut self, header: Header) {
+        match header {
+            Header::Accept(_) => {
+                self.headers.insert(HeaderVariant::Accept, header);
+            }
+            Header::AcceptEncoding(_) => {
+                self.headers.insert(HeaderVariant::AcceptEncoding, header);
+            }
+            Header::Allow(_) => {
+                self.headers.insert(HeaderVariant::Allow, header);
+            }
+            Header::Authorization(_) => {
+                self.headers.insert(HeaderVariant::Authorization, header);
+            }
+            Header::ContentEncoding(_) => {
+                self.headers.insert(HeaderVariant::ContentEncoding, header);
+            }
+            Header::ContentLength(_) => {
+                self.headers.insert(HeaderVariant::ContentLength, header);
+            }
+            Header::ContentType(_) => {
+                self.headers.insert(HeaderVariant::ContentType, header);
+            }
+            Header::Date(_) => {
+                self.headers.insert(HeaderVariant::Date, header);
+            }
+            Header::Expires(_) => {
+                self.headers.insert(HeaderVariant::Expires, header);
+            }
+            Header::From(_) => {
+                self.headers.insert(HeaderVariant::From, header);
+            }
+            Header::Generic(_) => {
+                self.extra.push(header);
+            }
+            Header::Host(_) => {
+                self.headers.insert(HeaderVariant::Host, header);
+            }
+            Header::IfModifiedSince(_) => {
+                self.headers.insert(HeaderVariant::IfModifiedSince, header);
+            }
+            Header::LastModified(_) => {
+                self.headers.insert(HeaderVariant::LastModified, header);
+            }
+            Header::Location(_) => {
+                self.headers.insert(HeaderVariant::Location, header);
+            }
+            Header::Pragma(_) => {
+                self.headers.insert(HeaderVariant::Pragma, header);
+            }
+            Header::Referer(_) => {
+                self.headers.insert(HeaderVariant::Referer, header);
+            }
+            Header::Server(_) => {
+                self.headers.insert(HeaderVariant::Server, header);
+            }
+            Header::UserAgent(_) => {
+                self.headers.insert(HeaderVariant::UserAgent, header);
+            }
+            Header::WWWAuthenticate(_) => {
+                self.headers.insert(HeaderVariant::WWWAuthenticate, header);
+            }
+        }
+    }
+
+    pub fn get_generic(&self, _header: &str) -> Option<String> {
+        unimplemented!();
+    }
+}
+
+impl std::fmt::Display for Headers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for header in self.headers.values() {
+            f.write_str(header.to_string().as_str())?;
+            f.write_str("\r\n")?;
+        }
+        for header in &self.extra {
+            f.write_str(header.to_string().as_str())?;
+            f.write_str("\r\n")?;
+        }
+        f.write_str("\r\n")?;
+        Ok(())
+    }
+}
+
+impl TryFrom<&str> for Headers {
+    type Error = HeaderErr;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let lines = value.trim_end().split("\r\n");
+        let mut hm: HashMap<HeaderVariant, Header> = HashMap::new();
+        let mut ex = Vec::new();
+        for line in lines {
+            let (k, mut v) = match Header::try_from(line)? {
+                Header::Accept(val) => (HeaderVariant::Accept, Header::Accept(val)),
+                Header::AcceptEncoding(val) => {
+                    (HeaderVariant::AcceptEncoding, Header::AcceptEncoding(val))
+                }
+                Header::Allow(val) => (HeaderVariant::Allow, Header::Allow(val)),
+                Header::Authorization(val) => {
+                    (HeaderVariant::Authorization, Header::Authorization(val))
+                }
+                Header::ContentEncoding(val) => {
+                    (HeaderVariant::ContentEncoding, Header::ContentEncoding(val))
+                }
+                Header::ContentLength(val) => {
+                    (HeaderVariant::ContentLength, Header::ContentLength(val))
+                }
+                Header::ContentType(val) => (HeaderVariant::ContentType, Header::ContentType(val)),
+                Header::Date(val) => (HeaderVariant::Date, Header::Date(val)),
+                Header::Expires(val) => (HeaderVariant::Expires, Header::Expires(val)),
+                Header::From(val) => (HeaderVariant::From, Header::From(val)),
+                Header::Generic(val) => (HeaderVariant::Generic, Header::Generic(val)),
+                Header::Host(val) => (HeaderVariant::Host, Header::Host(val)),
+                Header::IfModifiedSince(val) => {
+                    (HeaderVariant::IfModifiedSince, Header::IfModifiedSince(val))
+                }
+                Header::LastModified(val) => {
+                    (HeaderVariant::LastModified, Header::LastModified(val))
+                }
+                Header::Location(val) => (HeaderVariant::Location, Header::Location(val)),
+                Header::Pragma(val) => (HeaderVariant::Pragma, Header::Pragma(val)),
+                Header::Referer(val) => (HeaderVariant::Referer, Header::Referer(val)),
+                Header::Server(val) => (HeaderVariant::Server, Header::Server(val)),
+                Header::UserAgent(val) => (HeaderVariant::UserAgent, Header::UserAgent(val)),
+                Header::WWWAuthenticate(val) => {
+                    (HeaderVariant::WWWAuthenticate, Header::WWWAuthenticate(val))
+                }
+            };
+            if k == HeaderVariant::Generic {
+                ex.push(v);
+                continue;
+            }
+            if let Some(value) = hm.get(&k) {
+                // Merge them if possible, otherwise error
+                match value {
+                    Header::Accept(inner) => {
+                        let Header::Accept(inner_v) = v else {
+                            return Err(HeaderErr::InvalidField(
+                                "Error merging Accept header".to_string(),
+                            ));
+                        };
+                        v = Header::Accept(inner_v + inner);
+                    }
+                    Header::AcceptEncoding(encodings) => {
+                        let Header::AcceptEncoding(ex_enc) = v else {
+                            return Err(HeaderErr::InvalidField(
+                                "Error merging Accept header".to_string(),
+                            ));
+                        };
+                        let mut encs = encodings.clone();
+                        encs.append(&mut ex_enc.clone());
+                        let hs: HashSet<ContentEncoding> = HashSet::from_iter(encs.iter().cloned());
+                        v = Header::AcceptEncoding(hs.into_iter().collect());
+                    }
+                    Header::Allow(methods) => {
+                        let Header::Allow(ex_met) = v else {
+                            return Err(HeaderErr::InvalidField(
+                                "Error merging Accept header".to_string(),
+                            ));
+                        };
+                        let mut mets = methods.clone();
+                        mets.append(&mut ex_met.clone());
+                        let hs: HashSet<Method> = HashSet::from_iter(mets.iter().cloned());
+                        v = Header::Allow(hs.into_iter().collect());
+                    }
+                    _ => {
+                        return Err(HeaderErr::InvalidField(format!(
+                            "Cannot merge multiple of field {}, {}",
+                            v, value
+                        )))
+                    }
+                }
+            }
+            hm.insert(k, v);
+        }
+        Ok(Headers {
+            headers: hm,
+            extra: ex,
+        })
+    }
+}
+
+impl TryFrom<String> for Headers {
+    type Error = HeaderErr;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Headers::try_from(value.as_ref())
+    }
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+pub enum HeaderVariant {
+    Accept,
+    AcceptEncoding,
+    Allow,
+    Authorization,
+    ContentEncoding,
+    ContentLength,
+    ContentType,
+    Date,
+    Expires,
+    From,
+    Generic,
+    Host,
+    IfModifiedSince,
+    LastModified,
+    Location,
+    Pragma,
+    Referer,
+    Server,
+    UserAgent,
+    WWWAuthenticate,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -41,37 +275,6 @@ pub enum Header {
     Server(String),
     UserAgent(String),
     WWWAuthenticate(String),
-}
-
-impl Header {
-    pub fn str_inner(&self) -> Option<String> {
-        match self {
-            Self::Authorization(inner) => Some(inner.to_string()),
-            Self::UserAgent(inner) => Some(inner.to_string()),
-            _ => None,
-        }
-    }
-
-    pub fn date_inner(&self) -> Option<DateTime<FixedOffset>> {
-        match self {
-            Self::IfModifiedSince(inner) => Some(inner.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn num_inner(&self) -> Option<usize> {
-        match self {
-            Self::ContentLength(inner) => Some(*inner),
-            _ => None,
-        }
-    }
-
-    pub fn encodings_inner(&self) -> Option<Vec<ContentEncoding>> {
-        match self {
-            Self::AcceptEncoding(inner) => Some(inner.clone()),
-            _ => None,
-        }
-    }
 }
 
 impl std::fmt::Display for Header {
@@ -118,6 +321,13 @@ impl std::fmt::Display for Header {
             Header::UserAgent(suf) => f.write_fmt(format_args!("User-Agent: {}", suf)),
             Header::WWWAuthenticate(suf) => f.write_fmt(format_args!("WWW-Authenticate: {}", suf)),
         }
+    }
+}
+
+impl TryFrom<&str> for Header {
+    type Error = HeaderErr;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Header::try_from(value.to_string())
     }
 }
 
@@ -222,5 +432,99 @@ mod tests {
                 DateTime::parse_from_rfc2822("Tue, 15 Nov 1994 08:12:31 GMT").unwrap()
             )
         );
+    }
+
+    #[test]
+    fn builds_header_list_from_string() {
+        let headers_str = "Content-Type: text/html\r\n\
+        Accept: */*\r\n\
+        Server: test-server/1.0\r\n\
+        Host: www.mywebserver.com\r\n\r\n";
+
+        let headers = Headers {
+            headers: HashMap::from([
+                (
+                    HeaderVariant::ContentType,
+                    Header::ContentType("text/html".to_string()),
+                ),
+                (HeaderVariant::Accept, Header::Accept("*/*".to_string())),
+                (
+                    HeaderVariant::Server,
+                    Header::Server("test-server/1.0".to_string()),
+                ),
+                (
+                    HeaderVariant::Host,
+                    Header::Host("www.mywebserver.com".to_string()),
+                ),
+            ]),
+            extra: vec![],
+        };
+
+        assert_eq!(Headers::try_from(headers_str).unwrap(), headers);
+    }
+
+    #[test]
+    fn builds_string_from_header_list() {
+        let headers_str = "Content-Type: text/html\r\n\
+        Accept: */*\r\n\
+        Server: test-server/1.0\r\n\
+        Host: www.mywebserver.com\r\n\r\n"
+            .to_string();
+
+        let headers = Headers {
+            headers: HashMap::from([
+                (
+                    HeaderVariant::ContentType,
+                    Header::ContentType("text/html".to_string()),
+                ),
+                (HeaderVariant::Accept, Header::Accept("*/*".to_string())),
+                (
+                    HeaderVariant::Server,
+                    Header::Server("test-server/1.0".to_string()),
+                ),
+                (
+                    HeaderVariant::Host,
+                    Header::Host("www.mywebserver.com".to_string()),
+                ),
+            ]),
+            extra: vec![],
+        };
+
+        assert_eq!(headers.to_string(), headers_str);
+    }
+
+    #[test]
+    fn merges_valid_headers() {
+        let headers_str = "Content-Type: text/html\r\n\
+        Accept: */*\r\n\
+        Server: test-server/1.0\r\n\
+        Host: www.mywebserver.com\r\n\
+        Accept-Encoding: deflate, gzip\r\n\r\n"
+            .to_string();
+
+        let headers = Headers {
+            headers: HashMap::from([
+                (
+                    HeaderVariant::ContentType,
+                    Header::ContentType("text/html".to_string()),
+                ),
+                (HeaderVariant::Accept, Header::Accept("*/*".to_string())),
+                (
+                    HeaderVariant::Server,
+                    Header::Server("test-server/1.0".to_string()),
+                ),
+                (
+                    HeaderVariant::Host,
+                    Header::Host("www.mywebserver.com".to_string()),
+                ),
+                (
+                    HeaderVariant::AcceptEncoding,
+                    Header::AcceptEncoding(vec![ContentEncoding::DEFLATE, ContentEncoding::GZIP]),
+                ),
+            ]),
+            extra: vec![],
+        };
+
+        assert_eq!(headers.to_string(), headers_str);
     }
 }

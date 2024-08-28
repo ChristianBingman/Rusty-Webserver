@@ -54,7 +54,7 @@ pub mod http_server {
 
     use crate::file::{File, FileError};
     use crate::http10::content_codings::ContentEncoding;
-    use crate::http10::headers::Header;
+    use crate::http10::headers::{Header, HeaderVariant, Headers};
     use crate::http10::methods::Method;
     use crate::http10::result_codes::ResultCode;
     use crate::http10::{request::HTTPRequest, response::HTTPResponse};
@@ -79,16 +79,15 @@ pub mod http_server {
 
     impl HTTPServer {
         fn default_handler(req: HTTPRequest, opts: &Arc<Opts>) -> HTTPResponse {
-            let mut headers: Vec<Header> = vec![
-                Header::Date(Utc::now().into()),
-                Header::Server("Rusty Webserver".to_string()),
-            ];
+            let mut headers = Headers::new();
+            headers.set(Header::Date(Utc::now().into()));
+            headers.set(Header::Server("Rusty Webserver".to_string()));
 
             if let Some(auth) = &opts.auth {
                 match middleware::basic_auth(&req, auth) {
                     Err(..) => {
-                        headers.push(Header::WWWAuthenticate("Basic".to_string()));
-                        headers.push(Header::ContentType("text/html".to_string()));
+                        headers.set(Header::WWWAuthenticate("Basic".to_string()));
+                        headers.set(Header::ContentType("text/html".to_string()));
                         return HTTPResponse::new(
                             opts.protocol.clone(),
                             ResultCode::Unauthorized,
@@ -105,12 +104,12 @@ pub mod http_server {
                     let f = File::try_load(&req.uri, &opts.directory);
                     match f {
                         Ok(mut file) => {
-                            let cond_modified = req.headers.iter().find(|header| {
-                                matches!(header, crate::http10::headers::Header::IfModifiedSince(_))
-                            });
+                            let cond_modified = req.headers.get(HeaderVariant::IfModifiedSince);
                             if let Some(cond_modified) = cond_modified {
-                                let dt = cond_modified.date_inner();
-                                if dt.is_some() && dt.unwrap() > file.get_modified() {
+                                let Header::IfModifiedSince(dt) = cond_modified else {
+                                    unimplemented!()
+                                };
+                                if dt > file.get_modified() {
                                     return HTTPResponse::new(
                                         opts.protocol.clone(),
                                         ResultCode::NotModified,
@@ -119,25 +118,24 @@ pub mod http_server {
                                     );
                                 }
                             }
-                            let encodings = req.headers.iter().find(|header| {
-                                matches!(header, crate::http10::headers::Header::AcceptEncoding(..))
-                            });
+                            let encodings = req.headers.get(HeaderVariant::ContentEncoding);
 
                             if let Some(encodings) = encodings {
-                                if let Some(encodings) = encodings.encodings_inner() {
-                                    if encodings
-                                        .iter()
-                                        .find(|encoding| **encoding == ContentEncoding::TOKEN)
-                                        .is_none()
-                                    {
-                                        headers.push(Header::ContentEncoding(encodings[0].clone()));
-                                        file = file.compress(&encodings[0], opts.ratio).unwrap();
-                                    }
+                                let Header::AcceptEncoding(encodings) = encodings else {
+                                    unimplemented!()
+                                };
+                                if encodings
+                                    .iter()
+                                    .find(|encoding| **encoding == ContentEncoding::TOKEN)
+                                    .is_none()
+                                {
+                                    headers.set(Header::ContentEncoding(encodings[0].clone()));
+                                    file = file.compress(&encodings[0], opts.ratio).unwrap();
                                 }
                             }
-                            headers.push(Header::ContentType(file.get_mime()));
-                            headers.push(Header::ContentLength(file.get_size()));
-                            headers.push(Header::LastModified(file.get_modified()));
+                            headers.set(Header::ContentType(file.get_mime()));
+                            headers.set(Header::ContentLength(file.get_size()));
+                            headers.set(Header::LastModified(file.get_modified()));
                             HTTPResponse::new(
                                 opts.protocol.clone(),
                                 ResultCode::OK,
@@ -149,7 +147,7 @@ pub mod http_server {
                             FileError::ReadError(err)
                                 if err.kind() == std::io::ErrorKind::NotFound =>
                             {
-                                headers.push(Header::ContentType("text/html".to_string()));
+                                headers.set(Header::ContentType("text/html".to_string()));
                                 HTTPResponse::new(
                                     opts.protocol.clone(),
                                     ResultCode::NotFound,
@@ -165,7 +163,7 @@ pub mod http_server {
 
                                 let body = util::html::dir_listing(files);
 
-                                headers.push(Header::ContentType("text/html".to_string()));
+                                headers.set(Header::ContentType("text/html".to_string()));
                                 HTTPResponse::new(
                                     opts.protocol.clone(),
                                     ResultCode::OK,
@@ -174,7 +172,7 @@ pub mod http_server {
                                 )
                             }
                             _ => {
-                                headers.push(Header::ContentType("text/html".to_string()));
+                                headers.set(Header::ContentType("text/html".to_string()));
                                 HTTPResponse::new(
                                     opts.protocol.clone(),
                                     ResultCode::InternalServerError,
@@ -192,13 +190,13 @@ pub mod http_server {
                 Method::HEAD => {
                     let f = File::try_load(&req.uri, &opts.directory);
                     match f {
-                        Ok(file) => {
-                            let cond_modified = req.headers.iter().find(|header| {
-                                matches!(header, crate::http10::headers::Header::IfModifiedSince(_))
-                            });
+                        Ok(mut file) => {
+                            let cond_modified = req.headers.get(HeaderVariant::IfModifiedSince);
                             if let Some(cond_modified) = cond_modified {
-                                let dt = cond_modified.date_inner();
-                                if dt.is_some() && dt.unwrap() > file.get_modified() {
+                                let Header::IfModifiedSince(dt) = cond_modified else {
+                                    unimplemented!()
+                                };
+                                if dt > file.get_modified() {
                                     return HTTPResponse::new(
                                         opts.protocol.clone(),
                                         ResultCode::NotModified,
@@ -207,9 +205,24 @@ pub mod http_server {
                                     );
                                 }
                             }
-                            headers.push(Header::ContentType(file.get_mime()));
-                            headers.push(Header::ContentLength(file.get_size()));
-                            headers.push(Header::LastModified(file.get_modified()));
+                            let encodings = req.headers.get(HeaderVariant::ContentEncoding);
+
+                            if let Some(encodings) = encodings {
+                                let Header::AcceptEncoding(encodings) = encodings else {
+                                    unimplemented!()
+                                };
+                                if encodings
+                                    .iter()
+                                    .find(|encoding| **encoding == ContentEncoding::TOKEN)
+                                    .is_none()
+                                {
+                                    headers.set(Header::ContentEncoding(encodings[0].clone()));
+                                    file = file.compress(&encodings[0], opts.ratio).unwrap();
+                                }
+                            }
+                            headers.set(Header::ContentType(file.get_mime()));
+                            headers.set(Header::ContentLength(file.get_size()));
+                            headers.set(Header::LastModified(file.get_modified()));
                             HTTPResponse::new(opts.protocol.clone(), ResultCode::OK, headers, None)
                         }
                         Err(err) => match err {
@@ -246,7 +259,7 @@ pub mod http_server {
                         "Received POST Data {:?}",
                         str::from_utf8(req.body.unwrap().as_ref())
                     );
-                    headers.push(Header::ContentType("text/html".to_string()));
+                    headers.set(Header::ContentType("text/html".to_string()));
                     HTTPResponse::new(
                         opts.protocol.clone(),
                         ResultCode::NotImplemented,
@@ -285,41 +298,28 @@ pub mod http_server {
                 request.uri,
                 request.version
             );
-            let user_agent = request
-                .headers
-                .iter()
-                .find(|header| matches!(header, crate::http10::headers::Header::UserAgent(_)));
+            let user_agent = request.headers.get(HeaderVariant::UserAgent);
             let user_agent = if user_agent.is_some() {
-                user_agent.unwrap().str_inner().unwrap()
+                let Header::UserAgent(user_agent) = user_agent.unwrap() else {
+                    unimplemented!()
+                };
+                user_agent
             } else {
                 "-".to_string()
             };
-            let req_headers = request
-                .headers
-                .clone()
-                .iter()
-                .map(|header| header.to_string())
-                .collect::<Vec<String>>()
-                .join("\n");
-
+            let req_headers = request.headers.to_string();
             let mut resp = handler(request, opts);
             let code = Into::<usize>::into(resp.status);
-            let content_len = resp
-                .headers
-                .iter()
-                .find(|header| matches!(header, Header::ContentLength(_)));
+            let content_len = resp.headers.get(HeaderVariant::ContentLength);
             let content_len = if content_len.is_some() {
-                content_len.unwrap().num_inner().unwrap()
+                let Header::ContentLength(content_len) = content_len.unwrap() else {
+                    unimplemented!()
+                };
+                content_len
             } else {
                 0
             };
-            let resp_headers = resp
-                .headers
-                .clone()
-                .iter()
-                .map(|header| header.to_string())
-                .collect::<Vec<String>>()
-                .join("\n");
+            let resp_headers = resp.headers.to_string();
             stream.write_all(resp.as_bytes().as_slice()).unwrap();
             log::info!(
                 "{} {} {} {} {}",
