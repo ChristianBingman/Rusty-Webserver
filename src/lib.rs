@@ -45,22 +45,20 @@ impl Default for Opts {
 }
 
 pub mod http_server {
-    use core::str;
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::sync::Arc;
 
     use chrono::Utc;
 
-    use crate::file::{File, FileError};
-    use crate::http10::content_codings::ContentEncoding;
     use crate::http10::headers::{Header, HeaderVariant, Headers};
     use crate::http10::methods::Method;
     use crate::http10::result_codes::ResultCode;
     use crate::http10::{request::HTTPRequest, response::HTTPResponse};
+    use crate::middleware;
+    use crate::middleware::get_handler;
     use crate::threadpool::ThreadPoolQ;
     use crate::util::html::error_page;
-    use crate::{middleware, util};
 
     use super::Opts;
 
@@ -79,13 +77,12 @@ pub mod http_server {
 
     impl HTTPServer {
         fn default_handler(req: HTTPRequest, opts: &Arc<Opts>) -> HTTPResponse {
-            let mut headers = Headers::new();
-            headers.set(Header::Date(Utc::now().into()));
-            headers.set(Header::Server("Rusty Webserver".to_string()));
-
             if let Some(auth) = &opts.auth {
                 match middleware::basic_auth(&req, auth) {
                     Err(..) => {
+                        let mut headers = Headers::new();
+                        headers.set(Header::Date(Utc::now().into()));
+                        headers.set(Header::Server("Rusty Webserver".to_string()));
                         headers.set(Header::WWWAuthenticate("Basic".to_string()));
                         headers.set(Header::ContentType("text/html".to_string()));
                         return HTTPResponse::new(
@@ -100,165 +97,16 @@ pub mod http_server {
             }
 
             match req.method {
-                Method::GET => {
-                    let f = File::try_load(&req.uri, &opts.directory);
-                    match f {
-                        Ok(mut file) => {
-                            let cond_modified = req.headers.get(HeaderVariant::IfModifiedSince);
-                            if let Some(cond_modified) = cond_modified {
-                                let Header::IfModifiedSince(dt) = cond_modified else {
-                                    unimplemented!()
-                                };
-                                if dt > file.get_modified() {
-                                    return HTTPResponse::new(
-                                        opts.protocol.clone(),
-                                        ResultCode::NotModified,
-                                        headers,
-                                        None,
-                                    );
-                                }
-                            }
-                            let encodings = req.headers.get(HeaderVariant::ContentEncoding);
-
-                            if let Some(encodings) = encodings {
-                                let Header::AcceptEncoding(encodings) = encodings else {
-                                    unimplemented!()
-                                };
-                                if encodings
-                                    .iter()
-                                    .find(|encoding| **encoding == ContentEncoding::TOKEN)
-                                    .is_none()
-                                {
-                                    headers.set(Header::ContentEncoding(encodings[0].clone()));
-                                    file = file.compress(&encodings[0], opts.ratio).unwrap();
-                                }
-                            }
-                            headers.set(Header::ContentType(file.get_mime()));
-                            headers.set(Header::ContentLength(file.get_size()));
-                            headers.set(Header::LastModified(file.get_modified()));
-                            HTTPResponse::new(
-                                opts.protocol.clone(),
-                                ResultCode::OK,
-                                headers,
-                                Some(file.get_content()),
-                            )
-                        }
-                        Err(err) => match err {
-                            FileError::ReadError(err)
-                                if err.kind() == std::io::ErrorKind::NotFound =>
-                            {
-                                headers.set(Header::ContentType("text/html".to_string()));
-                                HTTPResponse::new(
-                                    opts.protocol.clone(),
-                                    ResultCode::NotFound,
-                                    headers,
-                                    Some(error_page(ResultCode::NotFound).as_bytes().to_vec()),
-                                )
-                            }
-                            FileError::IsADirectory => {
-                                log::debug!("{} is a directory", &req.uri);
-                                // Get a listing of files
-                                let files = File::get_listing(&req.uri, &opts.directory);
-                                log::debug!("Returning files: {}", &files.join("\n"));
-
-                                let body = util::html::dir_listing(files);
-
-                                headers.set(Header::ContentType("text/html".to_string()));
-                                HTTPResponse::new(
-                                    opts.protocol.clone(),
-                                    ResultCode::OK,
-                                    headers,
-                                    Some(body.into()),
-                                )
-                            }
-                            _ => {
-                                headers.set(Header::ContentType("text/html".to_string()));
-                                HTTPResponse::new(
-                                    opts.protocol.clone(),
-                                    ResultCode::InternalServerError,
-                                    headers,
-                                    Some(
-                                        error_page(ResultCode::InternalServerError)
-                                            .as_bytes()
-                                            .to_vec(),
-                                    ),
-                                )
-                            }
-                        },
-                    }
-                }
+                Method::GET => get_handler(&req, opts),
                 Method::HEAD => {
-                    let f = File::try_load(&req.uri, &opts.directory);
-                    match f {
-                        Ok(mut file) => {
-                            let cond_modified = req.headers.get(HeaderVariant::IfModifiedSince);
-                            if let Some(cond_modified) = cond_modified {
-                                let Header::IfModifiedSince(dt) = cond_modified else {
-                                    unimplemented!()
-                                };
-                                if dt > file.get_modified() {
-                                    return HTTPResponse::new(
-                                        opts.protocol.clone(),
-                                        ResultCode::NotModified,
-                                        headers,
-                                        None,
-                                    );
-                                }
-                            }
-                            let encodings = req.headers.get(HeaderVariant::ContentEncoding);
-
-                            if let Some(encodings) = encodings {
-                                let Header::AcceptEncoding(encodings) = encodings else {
-                                    unimplemented!()
-                                };
-                                if encodings
-                                    .iter()
-                                    .find(|encoding| **encoding == ContentEncoding::TOKEN)
-                                    .is_none()
-                                {
-                                    headers.set(Header::ContentEncoding(encodings[0].clone()));
-                                    file = file.compress(&encodings[0], opts.ratio).unwrap();
-                                }
-                            }
-                            headers.set(Header::ContentType(file.get_mime()));
-                            headers.set(Header::ContentLength(file.get_size()));
-                            headers.set(Header::LastModified(file.get_modified()));
-                            HTTPResponse::new(opts.protocol.clone(), ResultCode::OK, headers, None)
-                        }
-                        Err(err) => match err {
-                            FileError::ReadError(err)
-                                if err.kind() == std::io::ErrorKind::NotFound =>
-                            {
-                                HTTPResponse::new(
-                                    opts.protocol.clone(),
-                                    ResultCode::NotFound,
-                                    headers,
-                                    None,
-                                )
-                            }
-                            FileError::IsADirectory => {
-                                // Get a listing of files
-                                HTTPResponse::new(
-                                    opts.protocol.clone(),
-                                    ResultCode::NotFound,
-                                    headers,
-                                    None,
-                                )
-                            }
-                            _ => HTTPResponse::new(
-                                opts.protocol.clone(),
-                                ResultCode::InternalServerError,
-                                headers,
-                                None,
-                            ),
-                        },
-                    }
+                    let mut resp = get_handler(&req, opts);
+                    resp.body = None;
+                    resp
                 }
                 Method::POST => {
-                    log::info!(
-                        "Received POST Data {:?}",
-                        str::from_utf8(req.body.unwrap().as_ref())
-                    );
+                    let mut headers = Headers::new();
+                    headers.set(Header::Date(Utc::now().into()));
+                    headers.set(Header::Server("Rusty Webserver".to_string()));
                     headers.set(Header::ContentType("text/html".to_string()));
                     HTTPResponse::new(
                         opts.protocol.clone(),

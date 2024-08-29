@@ -17,13 +17,14 @@ Provides an implementation of an http 1.0 file server. Essentially like python3'
 - [x] Make header searching more efficient
 - [ ] Handle return codes better
   - [x] Implement a server error and 404 page
+- [ ] Build CI
+- [ ] Documentation
 - [-] Testing
   - [x] ThreadPool implementation
   - [ ] Request parsing
   - [ ] Responses
-- [ ] Cleanup & Code Reduction
-  - [ ] HEAD and GET duplicated code
-  - [ ] Headers use many repeated matches
+- [x] Cleanup & Code Reduction
+  - [x] HEAD and GET duplicated code
 
 The server accepts HTTP 1.1 requests as well, but it will only ever respond with HTTP 1.0, and doesn't support HTTP 1.0 features such as
 
