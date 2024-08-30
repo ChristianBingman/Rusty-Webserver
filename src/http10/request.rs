@@ -54,9 +54,7 @@ impl TryFrom<&Vec<u8>> for HTTPRequest {
         let spl_ind = &req.windows(4).position(|bytes| bytes == &[13, 10, 13, 10]);
         if spl_ind.is_none() {
             // Fail if we can't find \r\n\r\n
-            return Err(Self::Error::ParseError(
-                "Unable to find header delimiter".to_string(),
-            ));
+            return Err(Self::Error::ContentLenError);
         }
         let (header_lines, body) = &req.split_at(spl_ind.unwrap() + 4);
         let header_lines_str = convert_iso_8859_1_to_utf8(&header_lines.to_vec());

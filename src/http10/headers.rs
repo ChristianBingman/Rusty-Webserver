@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, FixedOffset, Utc};
 
 use super::{
     content_codings::ContentEncoding,
@@ -104,6 +104,15 @@ impl Headers {
 
     pub fn get_generic(&self, _header: &str) -> Option<String> {
         unimplemented!();
+    }
+}
+
+impl Default for Headers {
+    fn default() -> Self {
+        let mut headers = Self::new();
+        headers.set(Header::Date(Utc::now().into()));
+        headers.set(Header::Server("Rusty Webserver".to_string()));
+        headers
     }
 }
 

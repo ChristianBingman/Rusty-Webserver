@@ -6,7 +6,7 @@ use std::{fs, io};
 
 use chrono::{DateTime, FixedOffset, Utc};
 use flate2::write::{DeflateEncoder, GzEncoder};
-use flate2::{CompressError, Compression};
+use flate2::Compression;
 
 use crate::http10::content_codings::ContentEncoding;
 use crate::http10::content_types::get_mime;
@@ -95,27 +95,24 @@ impl File {
         self.modified.into()
     }
 
-    pub fn get_listing(uri: &str, base_dir: &str) -> Vec<String> {
+    pub fn get_listing(uri: &str, base_dir: &str) -> io::Result<Vec<String>> {
         let path = Path::new(base_dir).join(&uri[1..]);
-        let files = fs::read_dir(path).unwrap();
+        let files = fs::read_dir(path)?;
 
-        files
+        // May introduce TOCTOU
+        Ok(files
             .map(|file| file.unwrap().path().display().to_string())
-            .collect()
+            .collect())
     }
 
-    pub fn compress(
-        self,
-        compression: &ContentEncoding,
-        ratio: u32,
-    ) -> Result<Self, CompressError> {
+    pub fn compress(self, compression: &ContentEncoding, ratio: u32) -> io::Result<Self> {
         log::debug!("Encoding {} as {}", self.path, compression);
         match compression {
             ContentEncoding::GZIP => {
                 let mut enc = GzEncoder::new(Vec::new(), Compression::new(ratio));
-                enc.write_all(&self.content).unwrap();
+                enc.write_all(&self.content)?;
 
-                let comp = enc.finish().unwrap();
+                let comp = enc.finish()?;
 
                 Ok(File {
                     size: comp.len(),
@@ -125,9 +122,9 @@ impl File {
             }
             ContentEncoding::DEFLATE => {
                 let mut enc = DeflateEncoder::new(Vec::new(), Compression::new(ratio));
-                enc.write_all(&self.content).unwrap();
+                enc.write_all(&self.content)?;
 
-                let comp = enc.finish().unwrap();
+                let comp = enc.finish()?;
 
                 Ok(File {
                     size: comp.len(),

@@ -48,11 +48,11 @@ pub mod http_server {
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::sync::Arc;
-
-    use chrono::Utc;
+    use std::time::Duration;
 
     use crate::http10::headers::{Header, HeaderVariant, Headers};
     use crate::http10::methods::Method;
+    use crate::http10::request::ReqError;
     use crate::http10::result_codes::ResultCode;
     use crate::http10::{request::HTTPRequest, response::HTTPResponse};
     use crate::middleware;
@@ -80,9 +80,7 @@ pub mod http_server {
             if let Some(auth) = &opts.auth {
                 match middleware::basic_auth(&req, auth) {
                     Err(..) => {
-                        let mut headers = Headers::new();
-                        headers.set(Header::Date(Utc::now().into()));
-                        headers.set(Header::Server("Rusty Webserver".to_string()));
+                        let mut headers = Headers::default();
                         headers.set(Header::WWWAuthenticate("Basic".to_string()));
                         headers.set(Header::ContentType("text/html".to_string()));
                         return HTTPResponse::new(
@@ -104,9 +102,7 @@ pub mod http_server {
                     resp
                 }
                 Method::POST => {
-                    let mut headers = Headers::new();
-                    headers.set(Header::Date(Utc::now().into()));
-                    headers.set(Header::Server("Rusty Webserver".to_string()));
+                    let mut headers = Headers::default();
                     headers.set(Header::ContentType("text/html".to_string()));
                     HTTPResponse::new(
                         opts.protocol.clone(),
@@ -123,23 +119,47 @@ pub mod http_server {
             handler: &Box<dyn Fn(HTTPRequest, &Arc<Opts>) -> HTTPResponse + Send + Sync + 'static>,
             opts: &Arc<Opts>,
         ) {
+            // Only fails when duration is 0 which we explicitly do not set
+            stream
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .unwrap();
             let remote: String = match stream.peer_addr() {
                 Ok(addr) => addr.to_string(),
                 Err(_) => "Invalid Address".to_string(),
             };
             let mut request: Vec<u8> = Vec::new();
             let mut buf = [0u8; 4096];
-            while HTTPRequest::try_from(&request).is_err() {
-                match stream.read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        request.append(buf[..n].to_vec().as_mut());
-                    }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => (),
-                    Err(_) => break,
+            loop {
+                match HTTPRequest::try_from(&request) {
+                    Err(ReqError::ContentLenError) => match stream.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            request.append(buf[..n].to_vec().as_mut());
+                        }
+                        Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => (),
+                        Err(_) => break,
+                    },
+                    _ => break,
                 }
             }
-            let request = HTTPRequest::try_from(&request).unwrap();
+            let request = match HTTPRequest::try_from(&request) {
+                Ok(req) => req,
+                Err(_) => {
+                    let headers = Headers::default();
+                    let mut resp = HTTPResponse {
+                        version: opts.protocol.clone(),
+                        status: ResultCode::BadRequest,
+                        headers,
+                        body: Some(error_page(ResultCode::BadRequest).as_bytes().to_vec()),
+                    };
+                    let _ = stream.write_all(resp.as_bytes().as_slice());
+                    log::error!("Malformed request from: {}", remote);
+                    log::debug!("Received: {:?}", request);
+                    return;
+                }
+            };
+
+            // Gathering info used for logging
             let headline = format!(
                 "{} {} {}",
                 Into::<String>::into(request.method),
@@ -147,28 +167,26 @@ pub mod http_server {
                 request.version
             );
             let user_agent = request.headers.get(HeaderVariant::UserAgent);
-            let user_agent = if user_agent.is_some() {
-                let Header::UserAgent(user_agent) = user_agent.unwrap() else {
-                    unimplemented!()
-                };
-                user_agent
-            } else {
-                "-".to_string()
+            let user_agent = match user_agent {
+                Some(Header::UserAgent(inner)) => inner,
+                _ => "-".to_string(),
             };
             let req_headers = request.headers.to_string();
+
+            // Pass off the request to the handler
             let mut resp = handler(request, opts);
+
+            //More log data gathering
             let code = Into::<usize>::into(resp.status);
-            let content_len = resp.headers.get(HeaderVariant::ContentLength);
-            let content_len = if content_len.is_some() {
-                let Header::ContentLength(content_len) = content_len.unwrap() else {
-                    unimplemented!()
-                };
-                content_len
-            } else {
-                0
+            let content_len = match resp.headers.get(HeaderVariant::ContentLength) {
+                Some(Header::ContentLength(len)) => len,
+                _ => 0,
             };
             let resp_headers = resp.headers.to_string();
+
+            // Send the response back
             stream.write_all(resp.as_bytes().as_slice()).unwrap();
+
             log::info!(
                 "{} {} {} {} {}",
                 headline,
@@ -193,10 +211,10 @@ pub mod http_server {
         ) -> HTTPServer {
             let opts = Arc::new(opts);
             match handler {
-                Some(handl) => HTTPServer {
+                Some(handler) => HTTPServer {
                     class,
                     opts,
-                    handler: handl,
+                    handler,
                 },
                 None => HTTPServer {
                     class,

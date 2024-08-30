@@ -41,18 +41,35 @@ pub fn get_handler(req: &HTTPRequest, opts: &Opts) -> HTTPResponse {
             }
             let encodings = req.headers.get(HeaderVariant::ContentEncoding);
 
-            if let Some(encodings) = encodings {
-                let Header::AcceptEncoding(encodings) = encodings else {
-                    unimplemented!()
-                };
-                if encodings
-                    .iter()
-                    .find(|encoding| **encoding == ContentEncoding::TOKEN)
-                    .is_none()
-                {
-                    headers.set(Header::ContentEncoding(encodings[0].clone()));
-                    file = file.compress(&encodings[0], opts.ratio).unwrap();
+            match encodings {
+                Some(Header::AcceptEncoding(encodings)) => {
+                    if encodings
+                        .iter()
+                        .find(|encoding| **encoding == ContentEncoding::TOKEN)
+                        .is_none()
+                    {
+                        headers.set(Header::ContentEncoding(encodings[0].clone()));
+                        match file.compress(&encodings[0], opts.ratio) {
+                            Ok(f) => file = f,
+                            Err(err) => {
+                                log::error!("Unable to compress file: {}", err.to_string());
+                                headers = Headers::default();
+                                headers.set(Header::ContentType("text/html".to_string()));
+                                return HTTPResponse::new(
+                                    opts.protocol.clone(),
+                                    ResultCode::InternalServerError,
+                                    headers,
+                                    Some(
+                                        error_page(ResultCode::InternalServerError)
+                                            .as_bytes()
+                                            .to_vec(),
+                                    ),
+                                );
+                            }
+                        }
+                    }
                 }
+                _ => (),
             }
             headers.set(Header::ContentType(file.get_mime()));
             headers.set(Header::ContentLength(file.get_size()));
@@ -74,10 +91,35 @@ pub fn get_handler(req: &HTTPRequest, opts: &Opts) -> HTTPResponse {
                     Some(error_page(ResultCode::NotFound).as_bytes().to_vec()),
                 )
             }
+            FileError::ReadError(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+                headers.set(Header::ContentType("text/html".to_string()));
+                HTTPResponse::new(
+                    opts.protocol.clone(),
+                    ResultCode::Forbidden,
+                    headers,
+                    Some(error_page(ResultCode::Forbidden).as_bytes().to_vec()),
+                )
+            }
             FileError::IsADirectory => {
                 log::debug!("{} is a directory", &req.uri);
                 // Get a listing of files
-                let files = File::get_listing(&req.uri, &opts.directory);
+                let files = match File::get_listing(&req.uri, &opts.directory) {
+                    Ok(list) => list,
+                    Err(err) => {
+                        log::error!("Unable to get directory listing {}", err.to_string());
+                        headers.set(Header::ContentType("text/html".to_string()));
+                        return HTTPResponse::new(
+                            opts.protocol.clone(),
+                            ResultCode::InternalServerError,
+                            headers,
+                            Some(
+                                error_page(ResultCode::InternalServerError)
+                                    .as_bytes()
+                                    .to_vec(),
+                            ),
+                        );
+                    }
+                };
                 log::debug!("Returning files: {}", &files.join("\n"));
 
                 let body = dir_listing(files);
