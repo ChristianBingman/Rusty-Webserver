@@ -21,7 +21,7 @@ Provides an implementation of an http 1.0 file server. Essentially like python3'
 - [ ] Documentation
 - [-] Testing
   - [x] ThreadPool implementation
-  - [ ] Request parsing
+  - [x] Request parsing
   - [ ] Responses
 - [x] Cleanup & Code Reduction
   - [x] HEAD and GET duplicated code

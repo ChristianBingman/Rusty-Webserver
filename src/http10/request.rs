@@ -1,13 +1,13 @@
-use super::convert_iso_8859_1_to_utf8;
 use super::headers::{Header, HeaderVariant, Headers};
 use super::methods::Method;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum ReqError {
     ParseError(String),
     ContentLenError,
     InvalidMethodErr,
+    InvalidHTTPVerError,
 }
 
 #[derive(Debug, Clone)]
@@ -57,7 +57,14 @@ impl TryFrom<&Vec<u8>> for HTTPRequest {
             return Err(Self::Error::ContentLenError);
         }
         let (header_lines, body) = &req.split_at(spl_ind.unwrap() + 4);
-        let header_lines_str = convert_iso_8859_1_to_utf8(&header_lines.to_vec());
+        let header_lines = header_lines.to_vec();
+        let header_lines_str = match std::str::from_utf8(&header_lines) {
+            Ok(lines) => lines,
+            Err(err) => {
+                log::debug!("Received invalid bytes {}", err);
+                return Err(Self::Error::ParseError("Invalid header encoding".into()));
+            }
+        };
         let headers = header_lines_str.split_once("\r\n");
         if headers.is_none() {
             return Err(Self::Error::ParseError(
@@ -65,8 +72,12 @@ impl TryFrom<&Vec<u8>> for HTTPRequest {
             ));
         }
         let headers = headers.unwrap();
-        let (method, uri, version) = parse_request_line(headers.0)
-            .map_err(|_| Self::Error::ParseError("No request line".to_string()))?;
+        let (method, uri, version) = parse_request_line(headers.0)?;
+
+        // We are only supporting 1.0, but 1.1 should be compatible for the most part
+        if version != "HTTP/1.0" && version != "HTTP/1.1" {
+            return Err(Self::Error::InvalidHTTPVerError);
+        }
 
         let headers: Headers = Headers::try_from(headers.1).map_err(|err| {
             Self::Error::ParseError(format!("Unable to parse request line: {}", err))
@@ -92,5 +103,90 @@ impl TryFrom<&Vec<u8>> for HTTPRequest {
                 None
             },
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_parse_valid_request() {
+        let request_buf = "GET / HTTP/1.0\r\n\
+        Host: webserver.christianbingman.com\r\n\
+        User-Agent: rusty-client/1.0\r\n\
+        Accept: */*\r\n\r\n"
+            .as_bytes()
+            .to_vec();
+
+        let req = HTTPRequest::try_from(&request_buf).unwrap();
+        let mut headers = Headers::new();
+        headers.set(Header::Host("webserver.christianbingman.com".into()));
+        headers.set(Header::UserAgent("rusty-client/1.0".into()));
+        headers.set(Header::Accept("*/*".into()));
+
+        assert_eq!(req.method, Method::GET);
+        assert_eq!(req.uri, "/");
+        assert_eq!(req.version, "HTTP/1.0");
+        assert_eq!(req.headers, headers);
+    }
+
+    #[test]
+    fn test_fail_invalid_request() {
+        let request_buf = "GET HTTP/1.0\r\n\
+        Host: webserver.christianbingman.com\r\n\
+        User-Agent: rusty-client/1.0\r\n\
+        Accept: */*\r\n\r\n"
+            .as_bytes()
+            .to_vec();
+
+        assert_eq!(
+            HTTPRequest::try_from(&request_buf).unwrap_err(),
+            ReqError::ParseError("Invalid header line".into())
+        );
+    }
+
+    #[test]
+    fn test_missing_header_delimiter() {
+        let request_buf = "GET HTTP/1.0\r\n\
+        Host: webserver.christianbingman.com\r\n\
+        User-Agent: rusty-client/1.0\r\n\
+        Accept: */*\r\n"
+            .as_bytes()
+            .to_vec();
+
+        assert_eq!(
+            HTTPRequest::try_from(&request_buf).unwrap_err(),
+            ReqError::ContentLenError
+        );
+    }
+
+    #[test]
+    fn test_invalid_http_ver() {
+        let request_buf = "GET / HTTP/2.0\r\n\
+        Host: webserver.christianbingman.com\r\n\
+        User-Agent: rusty-client/1.0\r\n\
+        Accept: */*\r\n\r\n"
+            .as_bytes()
+            .to_vec();
+
+        assert_eq!(
+            HTTPRequest::try_from(&request_buf).unwrap_err(),
+            ReqError::InvalidHTTPVerError
+        );
+    }
+
+    #[test]
+    fn test_invalid_header_charset() {
+        let request_buf = b"GET HTTP/1.0\r\n\
+        Host: webserver.christianbingman.com\r\n\
+        User-Agent: rusty-client/1.0\r\n\
+        Accept: */*\xc3\x28\r\n\r\n"
+            .to_vec();
+
+        assert_eq!(
+            HTTPRequest::try_from(&request_buf).unwrap_err(),
+            ReqError::ParseError("Invalid header encoding".into())
+        );
     }
 }
